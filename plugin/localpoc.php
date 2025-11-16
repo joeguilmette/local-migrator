@@ -34,8 +34,15 @@ class LocalPOC_Plugin {
         // Register admin menu
         add_action('admin_menu', [__CLASS__, 'register_admin_menu']);
 
-        // Register REST API routes
-        add_action('rest_api_init', 'localpoc_register_rest_routes');
+        // Register AJAX endpoints (logged-in + unauthenticated)
+        add_action('wp_ajax_localpoc_files_manifest', 'localpoc_ajax_files_manifest');
+        add_action('wp_ajax_nopriv_localpoc_files_manifest', 'localpoc_ajax_files_manifest');
+
+        add_action('wp_ajax_localpoc_file', 'localpoc_ajax_file');
+        add_action('wp_ajax_nopriv_localpoc_file', 'localpoc_ajax_file');
+
+        add_action('wp_ajax_localpoc_db_stream', 'localpoc_ajax_db_stream');
+        add_action('wp_ajax_nopriv_localpoc_db_stream', 'localpoc_ajax_db_stream');
     }
 
     /** Ensures an access key exists for the site. */
@@ -155,9 +162,9 @@ function localpoc_get_access_key() {
     return LocalPOC_Plugin::get_access_key();
 }
 
-/** Validates the X-Localpoc-Key header for REST requests. */
-function localpoc_require_valid_key(WP_REST_Request $request) {
-    $provided_key = $request->get_header('x-localpoc-key');
+
+/** Validates a provided access key string. */
+function localpoc_validate_access_key($provided_key) {
     $expected_key = localpoc_get_access_key();
 
     if (empty($provided_key) || !hash_equals($expected_key, $provided_key)) {
@@ -171,44 +178,47 @@ function localpoc_require_valid_key(WP_REST_Request $request) {
     return true;
 }
 
-/** Registers the REST API endpoints for the plugin. */
-function localpoc_register_rest_routes() {
-    register_rest_route(
-        'localpoc/v1',
-        '/files-manifest',
-        [
-            'methods'             => WP_REST_Server::READABLE,
-            'callback'            => 'localpoc_rest_files_manifest',
-            'permission_callback' => '__return_true',
-        ]
-    );
+/** Retrieves the key from the request headers or params. */
+function localpoc_get_request_key() {
+    $header_key = '';
+    if (isset($_SERVER['HTTP_X_LOCALPOC_KEY'])) {
+        $header_key = sanitize_text_field(wp_unslash($_SERVER['HTTP_X_LOCALPOC_KEY']));
+    } elseif (function_exists('getallheaders')) {
+        $headers = getallheaders();
+        if (isset($headers['X-Localpoc-Key'])) {
+            $header_key = sanitize_text_field(wp_unslash($headers['X-Localpoc-Key']));
+        }
+    }
 
-    register_rest_route(
-        'localpoc/v1',
-        '/file',
-        [
-            'methods'             => WP_REST_Server::READABLE,
-            'callback'            => 'localpoc_rest_file',
-            'permission_callback' => '__return_true',
-        ]
-    );
+    if (!empty($header_key)) {
+        return $header_key;
+    }
 
-    register_rest_route(
-        'localpoc/v1',
-        '/db-stream',
-        [
-            'methods'             => WP_REST_Server::READABLE,
-            'callback'            => 'localpoc_rest_db_stream',
-            'permission_callback' => '__return_true',
-        ]
-    );
+    if (isset($_REQUEST['localpoc_key'])) { // phpcs:ignore WordPress.Security.NonceVerification
+        return sanitize_text_field(wp_unslash($_REQUEST['localpoc_key']));
+    }
+
+    return '';
+}
+
+/** Sends a JSON error response and exits. */
+function localpoc_ajax_send_error(WP_Error $error) {
+    $status = $error->get_error_data('status');
+    if ($status) {
+        status_header((int) $status);
+    }
+
+    wp_send_json([
+        'error'   => $error->get_error_code(),
+        'message' => $error->get_error_message(),
+    ]);
 }
 
 /** Returns a recursive file manifest for the WordPress root. */
-function localpoc_rest_files_manifest(WP_REST_Request $request) {
-    $auth_result = localpoc_require_valid_key($request);
+function localpoc_ajax_files_manifest() {
+    $auth_result = localpoc_validate_access_key(localpoc_get_request_key());
     if ($auth_result instanceof WP_Error) {
-        return $auth_result;
+        localpoc_ajax_send_error($auth_result);
     }
 
     $root_path = function_exists('untrailingslashit') ? untrailingslashit(ABSPATH) : rtrim(ABSPATH, '/\\');
@@ -256,62 +266,62 @@ function localpoc_rest_files_manifest(WP_REST_Request $request) {
             ];
         }
     } catch (UnexpectedValueException $e) {
-        return new WP_Error(
+        localpoc_ajax_send_error(new WP_Error(
             'localpoc_manifest_error',
             __('Unable to build file manifest.', 'localpoc'),
             ['status' => 500]
-        );
+        ));
     }
 
-    return rest_ensure_response([
+    wp_send_json([
         'root'  => ABSPATH,
         'files' => $files,
     ]);
 }
 
 /** Streams an individual file from the site filesystem. */
-function localpoc_rest_file(WP_REST_Request $request) {
-    $auth_result = localpoc_require_valid_key($request);
+function localpoc_ajax_file() {
+    $auth_result = localpoc_validate_access_key(localpoc_get_request_key());
     if ($auth_result instanceof WP_Error) {
-        return $auth_result;
+        localpoc_ajax_send_error($auth_result);
     }
 
-    $relative_path = $request->get_param('path');
+    $relative_path = isset($_REQUEST['path']) ? sanitize_text_field(wp_unslash($_REQUEST['path'])) : '';
     if (!is_string($relative_path) || $relative_path === '') {
-        return new WP_Error(
+        localpoc_ajax_send_error(new WP_Error(
             'localpoc_invalid_path',
             __('File path is required.', 'localpoc'),
             ['status' => 400]
-        );
+        ));
     }
 
     $relative_path = ltrim(str_replace('\\', '/', $relative_path), '/');
     if ($relative_path === '') {
-        return new WP_Error(
+        localpoc_ajax_send_error(new WP_Error(
             'localpoc_invalid_path',
             __('Invalid file path.', 'localpoc'),
             ['status' => 400]
-        );
+        ));
     }
 
     $root_realpath = realpath(ABSPATH);
     if ($root_realpath === false) {
-        return new WP_Error(
+        localpoc_ajax_send_error(new WP_Error(
             'localpoc_root_unavailable',
             __('Unable to determine site root.', 'localpoc'),
             ['status' => 500]
-        );
+        ));
     }
 
     $full_path = $root_realpath . DIRECTORY_SEPARATOR . $relative_path;
     $resolved_path = realpath($full_path);
 
     if ($resolved_path === false || !is_file($resolved_path)) {
-        return new WP_Error(
+        localpoc_ajax_send_error(new WP_Error(
             'localpoc_file_not_found',
             __('Requested file not found.', 'localpoc'),
             ['status' => 404]
-        );
+        ));
     }
 
     if (function_exists('wp_normalize_path')) {
@@ -329,28 +339,28 @@ function localpoc_rest_file(WP_REST_Request $request) {
     }
 
     if (strpos($normalized_resolved . '/', $normalized_root) !== 0) {
-        return new WP_Error(
+        localpoc_ajax_send_error(new WP_Error(
             'localpoc_invalid_path',
             __('Invalid file path.', 'localpoc'),
             ['status' => 400]
-        );
+        ));
     }
 
     if (!is_readable($resolved_path)) {
-        return new WP_Error(
+        localpoc_ajax_send_error(new WP_Error(
             'localpoc_unreadable_file',
             __('File is not readable.', 'localpoc'),
             ['status' => 403]
-        );
+        ));
     }
 
     $handle = fopen($resolved_path, 'rb');
     if (!$handle) {
-        return new WP_Error(
+        localpoc_ajax_send_error(new WP_Error(
             'localpoc_stream_error',
             __('Unable to open file for reading.', 'localpoc'),
             ['status' => 500]
-        );
+        ));
     }
 
     $filesize = filesize($resolved_path);
@@ -396,29 +406,29 @@ function localpoc_rest_file(WP_REST_Request $request) {
 }
 
 /** Streams a lightweight SQL export of the WordPress database. */
-function localpoc_rest_db_stream(WP_REST_Request $request) {
-    $auth_result = localpoc_require_valid_key($request);
+function localpoc_ajax_db_stream() {
+    $auth_result = localpoc_validate_access_key(localpoc_get_request_key());
     if ($auth_result instanceof WP_Error) {
-        return $auth_result;
+        localpoc_ajax_send_error($auth_result);
     }
 
     global $wpdb;
 
     if (!$wpdb instanceof wpdb) {
-        return new WP_Error(
+        localpoc_ajax_send_error(new WP_Error(
             'localpoc_db_unavailable',
             __('Database connection unavailable.', 'localpoc'),
             ['status' => 500]
-        );
+        ));
     }
 
     $tables = $wpdb->get_col('SHOW TABLES');
     if (!is_array($tables)) {
-        return new WP_Error(
+        localpoc_ajax_send_error(new WP_Error(
             'localpoc_db_list_failed',
             __('Unable to list database tables.', 'localpoc'),
             ['status' => 500]
-        );
+        ));
     }
 
     if (function_exists('nocache_headers')) {

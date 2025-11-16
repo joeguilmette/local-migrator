@@ -14,3 +14,6 @@ cli/.box.cache
 
 # Logs / temp
 *.log
+
+.localbackup/
+local-backup/

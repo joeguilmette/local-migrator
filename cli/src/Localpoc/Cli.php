@@ -132,11 +132,11 @@ class Cli
 
         $this->ensureOutputDir($outputDir);
 
-        $apiBase = Http::buildApiBaseUrl($url);
-        $this->info('Using API base: ' . $apiBase);
+        $adminAjaxUrl = Http::buildAdminAjaxUrl($url);
+        $this->info('Using API base: ' . $adminAjaxUrl);
         $this->info('Fetching manifest...');
 
-        $manifest = Http::getJson($apiBase, '/files-manifest', $key);
+        $manifest = Http::postJson($adminAjaxUrl, ['action' => 'localpoc_files_manifest', 'localpoc_key' => $key], $key);
         if (!isset($manifest['files']) || !is_array($manifest['files'])) {
             throw new RuntimeException('Manifest response missing files array.');
         }
@@ -156,7 +156,7 @@ class Cli
         $fileCount = count($files);
         $this->info(sprintf('Manifest retrieved: %d files, %d bytes total', $fileCount, $totalSize));
 
-        $dbResult = $this->downloadDatabase($apiBase, $key, $outputDir);
+        $dbResult = $this->downloadDatabase($adminAjaxUrl, $key, $outputDir);
         if ($dbResult['success']) {
             $this->info('Database export saved to ' . $dbResult['path']);
         } else {
@@ -164,7 +164,7 @@ class Cli
         }
 
         $this->info(sprintf('Downloading files (%d files, %d bytes) with concurrency %d...', $fileCount, $totalSize, $concurrency));
-        $fileResults = $this->downloadFilesParallel($apiBase, $key, $files, $outputDir, $concurrency);
+        $fileResults = $this->downloadFilesParallel($adminAjaxUrl, $key, $files, $outputDir, $concurrency);
         $this->info('Completed file downloads.');
 
         $dbSummary = $dbResult['success'] ? $dbResult['path'] : 'FAILED';
@@ -212,14 +212,14 @@ class Cli
         }
     }
 
-    private function downloadDatabase(string $apiBaseUrl, string $key, string $outputDir): array
+    private function downloadDatabase(string $adminAjaxUrl, string $key, string $outputDir): array
     {
         $normalizedBase = rtrim($outputDir, '\\\/');
         $destPath = $normalizedBase === '' ? 'db.sql' : $normalizedBase . DIRECTORY_SEPARATOR . 'db.sql';
         $this->ensureParentDir($destPath);
 
         try {
-            Http::streamToFile(rtrim($apiBaseUrl, '/') . '/db-stream', $key, $destPath);
+            Http::streamToFile($adminAjaxUrl, ['action' => 'localpoc_db_stream', 'localpoc_key' => $key], $key, $destPath);
             return [
                 'success' => true,
                 'path'    => $destPath,
@@ -234,7 +234,7 @@ class Cli
         }
     }
 
-    private function downloadFilesParallel(string $apiBaseUrl, string $key, array $files, string $outputDir, int $maxConcurrency): array
+    private function downloadFilesParallel(string $adminAjaxUrl, string $key, array $files, string $outputDir, int $maxConcurrency): array
     {
         $results = [
             'total'     => count($files),
@@ -265,7 +265,7 @@ class Cli
             while (($results['succeeded'] + $results['failed']) < $results['total'] || !empty($active)) {
                 while (count($active) < $maxConcurrency && $nextIndex < $results['total']) {
                     $fileEntry = $files[$nextIndex++];
-                    $transfer = $this->createFileTransfer($apiBaseUrl, $key, $fileEntry, $outputDir);
+                    $transfer = $this->createFileTransfer($adminAjaxUrl, $key, $fileEntry, $outputDir);
                     $handle = $transfer['handle'];
                     curl_multi_add_handle($multi, $handle);
                     $active[(int) $handle] = $transfer;
@@ -339,7 +339,7 @@ class Cli
         return $results;
     }
 
-    private function createFileTransfer(string $apiBaseUrl, string $key, array $fileEntry, string $outputDir): array
+    private function createFileTransfer(string $adminAjaxUrl, string $key, array $fileEntry, string $outputDir): array
     {
         if (!isset($fileEntry['path']) || !is_string($fileEntry['path']) || $fileEntry['path'] === '') {
             throw new RuntimeException('Manifest entry is missing the file path.');
@@ -358,8 +358,13 @@ class Cli
             throw new RuntimeException('Unable to open file for writing: ' . $localPath);
         }
 
-        $url = rtrim($apiBaseUrl, '/') . '/file?path=' . rawurlencode($relativePath);
-        $handle = Http::createFileCurlHandle($url, $key, $fp);
+        $params = [
+            'action'        => 'localpoc_file',
+            'path'          => $relativePath,
+            'localpoc_key'  => $key,
+        ];
+
+        $handle = Http::createFileCurlHandle($adminAjaxUrl, $params, $key, $fp);
 
         return [
             'handle'    => $handle,
