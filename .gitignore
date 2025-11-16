@@ -23,3 +23,7 @@ local-backup/
 archives/
 local-backup/.tmp/
 local-backup/archives/
+
+# Release artifacts
+releases/
+*.zip
