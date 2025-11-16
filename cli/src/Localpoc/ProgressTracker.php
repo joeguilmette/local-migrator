@@ -113,6 +113,21 @@ class ProgressTracker
     }
 
     /**
+     * Increments file bytes without marking a file completed
+     *
+     * @param int $bytes Bytes transferred
+     */
+    public function incrementFileBytes(int $bytes): void
+    {
+        if (!$this->initialized) {
+            return;
+        }
+
+        $this->progress['file_bytes'] += max(0, $bytes);
+        $this->render();
+    }
+
+    /**
      * Increments database bytes streamed
      *
      * @param int $bytes Bytes streamed

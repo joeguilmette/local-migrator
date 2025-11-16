@@ -52,6 +52,19 @@ class LocalPOC_Plugin {
         add_action('wp_ajax_localpoc_job_finish', [LocalPOC_Ajax_Handlers::class, 'job_finish']);
         add_action('wp_ajax_nopriv_localpoc_job_finish', [LocalPOC_Ajax_Handlers::class, 'job_finish']);
 
+        // Database job endpoints
+        add_action('wp_ajax_localpoc_db_job_init', [LocalPOC_Ajax_Handlers::class, 'db_job_init']);
+        add_action('wp_ajax_nopriv_localpoc_db_job_init', [LocalPOC_Ajax_Handlers::class, 'db_job_init']);
+
+        add_action('wp_ajax_localpoc_db_job_process', [LocalPOC_Ajax_Handlers::class, 'db_job_process']);
+        add_action('wp_ajax_nopriv_localpoc_db_job_process', [LocalPOC_Ajax_Handlers::class, 'db_job_process']);
+
+        add_action('wp_ajax_localpoc_db_job_download', [LocalPOC_Ajax_Handlers::class, 'db_job_download']);
+        add_action('wp_ajax_nopriv_localpoc_db_job_download', [LocalPOC_Ajax_Handlers::class, 'db_job_download']);
+
+        add_action('wp_ajax_localpoc_db_job_finish', [LocalPOC_Ajax_Handlers::class, 'db_job_finish']);
+        add_action('wp_ajax_nopriv_localpoc_db_job_finish', [LocalPOC_Ajax_Handlers::class, 'db_job_finish']);
+
         // Register REST routes for compatibility
         add_action('rest_api_init', [LocalPOC_Rest_Handlers::class, 'register_routes']);
     }

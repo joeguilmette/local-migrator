@@ -216,6 +216,147 @@ class ConcurrentDownloader
     }
 
     /**
+     * Downloads files only (no database) concurrently
+     *
+     * @param string $adminAjaxUrl   Admin AJAX URL
+     * @param string $key            Access key
+     * @param array  $batches        File batches
+     * @param array  $largeFiles     Large files to download individually
+     * @param string $filesOutputDir Output directory for files
+     * @param int    $maxConcurrency Max concurrent downloads
+     * @param callable|null $progressCallback Progress callback for bytes
+     * @return array Results with success/failure counts
+     */
+    public function downloadFilesOnly(string $adminAjaxUrl, string $key, array $batches, array $largeFiles, string $filesOutputDir, int $maxConcurrency, ?callable $progressCallback = null): array
+    {
+        if (!function_exists('curl_multi_init')) {
+            throw new RuntimeException('Concurrent downloads require the cURL extension.');
+        }
+
+        $multi = $this->getMultiHandle();
+        $maxConcurrency = max(1, $maxConcurrency);
+        $active = [];
+
+        // Setup batch downloads
+        $nextBatchIndex = 0;
+        $totalBatches = count($batches);
+        $batchResults = ['succeeded' => 0, 'failed' => 0, 'files_succeeded' => 0, 'files_failed' => 0];
+
+        // Setup file downloads
+        $nextFileIndex = 0;
+        $totalFiles = count($largeFiles);
+        $fileResults = ['succeeded' => 0, 'failed' => 0];
+
+        try {
+            // Main event loop: process batches + files concurrently
+            while (count($active) > 0 || $nextFileIndex < $totalFiles || $nextBatchIndex < $totalBatches) {
+                // Add batch and file handles up to concurrency limit
+                $availableSlots = $maxConcurrency - count($active);
+
+                // Prioritize batches first
+                while ($availableSlots > 0 && $nextBatchIndex < $totalBatches) {
+                    $batchTransfer = $this->createBatchTransfer($adminAjaxUrl, $key, $batches[$nextBatchIndex], $filesOutputDir);
+                    curl_multi_add_handle($multi, $batchTransfer['handle']);
+                    $transferId = (int) $batchTransfer['handle'];
+                    $active[$transferId] = $batchTransfer;
+                    $nextBatchIndex++;
+                    $availableSlots--;
+                }
+
+                // Fill remaining slots with individual files
+                while ($availableSlots > 0 && $nextFileIndex < $totalFiles) {
+                    $fileTransfer = $this->createFileTransfer($adminAjaxUrl, $key, $largeFiles[$nextFileIndex], $filesOutputDir);
+                    curl_multi_add_handle($multi, $fileTransfer['handle']);
+                    $transferId = (int) $fileTransfer['handle'];
+                    $active[$transferId] = $fileTransfer;
+                    $nextFileIndex++;
+                    $availableSlots--;
+                }
+
+                // Execute transfers
+                do {
+                    $status = curl_multi_exec($multi, $runningCount);
+                } while ($status === CURLM_CALL_MULTI_PERFORM);
+
+                // Check for completed transfers
+                while ($info = curl_multi_info_read($multi)) {
+                    if ($info['msg'] !== CURLMSG_DONE) {
+                        continue;
+                    }
+
+                    $handle = $info['handle'];
+                    $transferId = (int) $handle;
+
+                    if (!isset($active[$transferId])) {
+                        continue;
+                    }
+
+                    $transfer = $active[$transferId];
+                    unset($active[$transferId]);
+
+                    $httpCode = curl_getinfo($handle, CURLINFO_HTTP_CODE);
+                    $success = $httpCode === 200 && $info['result'] === CURLE_OK;
+
+                    if (isset($transfer['fp']) && is_resource($transfer['fp'])) {
+                        fclose($transfer['fp']);
+                    }
+
+                    curl_multi_remove_handle($multi, $handle);
+                    curl_close($handle);
+
+                    if ($transfer['type'] === 'batch') {
+                        if ($success && isset($transfer['temp_path']) && file_exists($transfer['temp_path'])) {
+                            $result = $this->batchExtractor->extractBatchZip($transfer['temp_path'], $transfer['output_dir'], $transfer['batch']);
+                            $batchResults['files_succeeded'] += $result['files_succeeded'];
+                            $batchResults['files_failed'] += $result['files_failed'];
+                            $batchResults['succeeded']++;
+
+                            if ($progressCallback) {
+                                $progressCallback(filesize($transfer['temp_path']));
+                            }
+                        } else {
+                            $batchResults['failed']++;
+                            $batchResults['files_failed'] += count($transfer['batch']);
+                        }
+                        if (isset($transfer['temp_path'])) {
+                            @unlink($transfer['temp_path']);
+                        }
+                    } elseif ($transfer['type'] === 'file') {
+                        if ($success) {
+                            $fileResults['succeeded']++;
+                            if ($progressCallback && isset($transfer['file']['size'])) {
+                                $progressCallback((int) $transfer['file']['size']);
+                            }
+                        } else {
+                            $fileResults['failed']++;
+                            if (isset($transfer['dest_path'])) {
+                                @unlink($transfer['dest_path']);
+                            }
+                        }
+                    }
+                }
+
+                // Wait for activity
+                if (!empty($active)) {
+                    $select = curl_multi_select($multi, 1.0);
+                    if ($select === -1) {
+                        usleep(100000);
+                    }
+                }
+            }
+        } finally {
+            $this->cleanupActiveTransfers($multi, $active);
+        }
+
+        return [
+            'files_succeeded' => $fileResults['succeeded'],
+            'files_failed' => $fileResults['failed'],
+            'batch_files_succeeded' => $batchResults['files_succeeded'],
+            'batch_files_failed' => $batchResults['files_failed'],
+        ];
+    }
+
+    /**
      * Creates a database transfer handle
      *
      * @param string          $adminAjaxUrl Admin AJAX URL

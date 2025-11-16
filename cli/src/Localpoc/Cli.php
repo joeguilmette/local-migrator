@@ -11,7 +11,7 @@ use RuntimeException;
  */
 class Cli
 {
-    private const VERSION = '0.0.6';
+    private const VERSION = '0.0.8';
 
     private const DEFAULT_OUTPUT = './local-backup';
     private const DEFAULT_CONCURRENCY = 4;

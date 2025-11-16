@@ -153,4 +153,33 @@ class BatchZipExtractor
 
         $zip->close();
     }
+
+    /**
+     * Extracts a batch ZIP and reports success/failure counts
+     *
+     * @param string $zipPath   Path to ZIP file
+     * @param string $outputDir Output directory
+     * @param array  $batch     Batch file metadata
+     * @return array{files_succeeded:int,files_failed:int}
+     */
+    public function extractBatchZip(string $zipPath, string $outputDir, array $batch): array
+    {
+        try {
+            $this->extractZipArchive($zipPath, $outputDir);
+            $this->progressTracker->markBatchSuccess($batch);
+
+            return [
+                'files_succeeded' => count($batch),
+                'files_failed' => 0,
+            ];
+        } catch (RuntimeException $e) {
+            $this->progressTracker->markBatchFailure(count($batch));
+            fwrite(STDERR, "[localpoc] ERROR: Batch extraction failed: " . $e->getMessage() . "\n");
+
+            return [
+                'files_succeeded' => 0,
+                'files_failed' => count($batch),
+            ];
+        }
+    }
 }

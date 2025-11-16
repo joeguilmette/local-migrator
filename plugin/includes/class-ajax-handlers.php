@@ -259,4 +259,123 @@ class LocalPOC_Ajax_Handlers {
 
         exit;
     }
+
+    /**
+     * AJAX: Initializes a database export job
+     */
+    public static function db_job_init() {
+        $auth_result = LocalPOC_Auth::validate_access_key(LocalPOC_Auth::get_request_key());
+        if ($auth_result instanceof WP_Error) {
+            LocalPOC_Request_Handler::ajax_send_error($auth_result);
+        }
+
+        $result = LocalPOC_Database_Job_Manager::init_job();
+        if ($result instanceof WP_Error) {
+            LocalPOC_Request_Handler::ajax_send_error($result);
+        }
+
+        wp_send_json($result);
+    }
+
+    /**
+     * AJAX: Processes a chunk of a database export job
+     */
+    public static function db_job_process() {
+        $auth_result = LocalPOC_Auth::validate_access_key(LocalPOC_Auth::get_request_key());
+        if ($auth_result instanceof WP_Error) {
+            LocalPOC_Request_Handler::ajax_send_error($auth_result);
+        }
+
+        $job_id = isset($_REQUEST['job_id']) ? sanitize_text_field(wp_unslash($_REQUEST['job_id'])) : ''; // phpcs:ignore
+        if ($job_id === '') {
+            LocalPOC_Request_Handler::ajax_send_error(new WP_Error(
+                'localpoc_missing_job_id',
+                __('Job ID is required.', 'localpoc'),
+                ['status' => 400]
+            ));
+        }
+
+        $time_budget = isset($_REQUEST['time_budget']) ? (int) $_REQUEST['time_budget'] : null; // phpcs:ignore
+
+        $result = LocalPOC_Database_Job_Manager::process_job($job_id, $time_budget);
+        if ($result instanceof WP_Error) {
+            LocalPOC_Request_Handler::ajax_send_error($result);
+        }
+
+        wp_send_json($result);
+    }
+
+    /**
+     * AJAX: Downloads completed database export
+     */
+    public static function db_job_download() {
+        $auth_result = LocalPOC_Auth::validate_access_key(LocalPOC_Auth::get_request_key());
+        if ($auth_result instanceof WP_Error) {
+            LocalPOC_Request_Handler::ajax_send_error($auth_result);
+        }
+
+        $job_id = isset($_REQUEST['job_id']) ? sanitize_text_field(wp_unslash($_REQUEST['job_id'])) : ''; // phpcs:ignore
+        if ($job_id === '') {
+            LocalPOC_Request_Handler::ajax_send_error(new WP_Error(
+                'localpoc_missing_job_id',
+                __('Job ID is required.', 'localpoc'),
+                ['status' => 400]
+            ));
+        }
+
+        $sql_file = LocalPOC_Database_Job_Manager::get_download_path($job_id);
+        if ($sql_file instanceof WP_Error) {
+            LocalPOC_Request_Handler::ajax_send_error($sql_file);
+        }
+
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
+
+        if (!headers_sent()) {
+            header('Content-Type: text/plain; charset=' . get_option('blog_charset'));
+            header('Content-Disposition: attachment; filename="db.sql"');
+            header('Content-Length: ' . filesize($sql_file));
+            header('Cache-Control: no-store, no-transform');
+        }
+
+        $handle = fopen($sql_file, 'rb');
+        if (!$handle) {
+            LocalPOC_Request_Handler::ajax_send_error(new WP_Error(
+                'localpoc_file_read_error',
+                __('Unable to open SQL file.', 'localpoc'),
+                ['status' => 500]
+            ));
+        }
+
+        $output = fopen('php://output', 'wb');
+        stream_copy_to_stream($handle, $output);
+        fclose($handle);
+        fclose($output);
+
+        exit;
+    }
+
+    /**
+     * AJAX: Finishes and cleans up database export job
+     */
+    public static function db_job_finish() {
+        $auth_result = LocalPOC_Auth::validate_access_key(LocalPOC_Auth::get_request_key());
+        if ($auth_result instanceof WP_Error) {
+            LocalPOC_Request_Handler::ajax_send_error($auth_result);
+        }
+
+        $job_id = isset($_REQUEST['job_id']) ? sanitize_text_field(wp_unslash($_REQUEST['job_id'])) : ''; // phpcs:ignore
+        if ($job_id === '') {
+            LocalPOC_Request_Handler::ajax_send_error(new WP_Error(
+                'localpoc_missing_job_id',
+                __('Job ID is required.', 'localpoc'),
+                ['status' => 400]
+            ));
+        }
+
+        LocalPOC_Database_Job_Manager::finish_job($job_id);
+
+        wp_send_json(['ok' => true]);
+    }
 }

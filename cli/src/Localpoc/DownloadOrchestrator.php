@@ -55,8 +55,50 @@ class DownloadOrchestrator
             $partition = null;
             $jobTotals = ['total_files' => 0, 'total_bytes' => 0];
 
-            $dbMetaBytes = FileOperations::fetchDbMeta($adminAjaxUrl, $key);
+            // Start database export job
+            $this->info('Initializing database export job...');
+            $dbJobInfo = DatabaseJobClient::initJob($adminAjaxUrl, $key);
+            $dbJobId = $dbJobInfo['job_id'];
+            $dbTotalRows = $dbJobInfo['total_rows'] ?? 0;
+            $dbBytesWritten = $dbJobInfo['bytes_written'] ?? 0;
 
+            $this->info(sprintf('DB job %s: %d tables, ~%d rows', $dbJobId, $dbJobInfo['total_tables'] ?? 0, $dbTotalRows));
+
+            // Process database chunks
+            $this->info('Processing database chunks...');
+            $dbDone = false;
+            while (!$dbDone) {
+                $dbProgress = DatabaseJobClient::processChunk($adminAjaxUrl, $key, $dbJobId);
+                $dbBytesWritten = $dbProgress['bytes_written'] ?? 0;
+                $dbDone = $dbProgress['done'] ?? false;
+
+                $this->info(sprintf(
+                    'DB: Tables %d/%d, %s',
+                    $dbProgress['completed_tables'] ?? 0,
+                    $dbProgress['total_tables'] ?? 0,
+                    $this->formatBytes($dbBytesWritten)
+                ));
+
+                if (!$dbDone) {
+                    usleep(100000); // 100ms between chunks
+                }
+            }
+
+            $this->info('Database chunks complete. Downloading SQL file...');
+            DatabaseJobClient::downloadDatabase(
+                $adminAjaxUrl,
+                $key,
+                $dbJobId,
+                $dbPath,
+                function (int $bytes): void {
+                    // Progress callback during download
+                }
+            );
+            DatabaseJobClient::finishJob($adminAjaxUrl, $key, $dbJobId);
+            $this->info('Database downloaded successfully.');
+
+            // Collect file manifest
+            $this->info('Starting file manifest job...');
             try {
                 $jobInfo = ManifestCollector::initializeJob($adminAjaxUrl, $key);
                 $jobId = $jobInfo['job_id'];
@@ -78,7 +120,7 @@ class DownloadOrchestrator
             $largeFiles = $partition['large'];
             $batches = $partition['batches'];
 
-            $this->progressTracker->initCounters($fileCount, $totalSize, $dbMetaBytes);
+            $this->progressTracker->initCounters($fileCount, $totalSize, $dbBytesWritten);
 
             $this->info(sprintf(
                 'Manifest ready: %d files (%d bytes) -> %d large, %d batches',
@@ -88,35 +130,26 @@ class DownloadOrchestrator
                 count($batches)
             ));
 
-            // Create DB transfer (don't execute yet)
-            $dbTransfer = $this->downloader->createDatabaseTransfer(
+            $this->info('Starting file downloads...');
+
+            // Download files only (no DB in concurrent downloads)
+            $results = $this->downloader->downloadFilesOnly(
                 $adminAjaxUrl,
                 $key,
-                $dbPath,
-                function (int $bytes): void {
-                    $this->progressTracker->incrementDbBytes($bytes);
-                }
-            );
-
-            $this->info('Starting concurrent downloads (DB + files)...');
-
-            // Execute DB + batch zips + large files concurrently
-            $results = $this->downloader->downloadConcurrently(
-                $adminAjaxUrl,
-                $key,
-                $dbTransfer,
                 $batches,
                 $largeFiles,
                 $filesRoot,
-                $concurrency
+                $concurrency,
+                function (int $bytes): void {
+                    $this->progressTracker->incrementFileBytes($bytes);
+                }
             );
 
-            $dbSummary = $results['db_success'] ? 'OK' : 'FAILED';
             $filesDownloaded = $results['files_succeeded'] + $results['batch_files_succeeded'];
             $failures = $results['files_failed'] + $results['batch_files_failed'];
 
             $this->progressTracker->render(true, true);
-            $this->info(sprintf('DB: %s', $dbSummary));
+            $this->info('Database: OK');
             $this->info(sprintf(
                 'Files: %d/%d (failed %d)',
                 $filesDownloaded,
@@ -126,7 +159,7 @@ class DownloadOrchestrator
             $resolvedOutput = realpath($outputDir) ?: $outputDir;
             $this->info('Output directory: ' . $resolvedOutput);
 
-            if (!$results['db_success'] || $failures > 0) {
+            if ($failures > 0) {
                 ArchiveBuilder::cleanupWorkspace($workspace);
                 $workspace = null;
                 return 3; // EXIT_HTTP
