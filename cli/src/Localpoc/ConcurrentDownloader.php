@@ -227,7 +227,16 @@ class ConcurrentDownloader
      * @param callable|null $progressCallback Progress callback for bytes
      * @return array Results with success/failure counts
      */
-    public function downloadFilesOnly(string $adminAjaxUrl, string $key, array $batches, array $largeFiles, string $filesOutputDir, int $maxConcurrency, ?callable $progressCallback = null): array
+    public function downloadFilesOnly(
+        string $adminAjaxUrl,
+        string $key,
+        array $batches,
+        array $largeFiles,
+        string $filesOutputDir,
+        int $maxConcurrency,
+        ?callable $progressCallback = null,
+        ?callable $tickCallback = null
+    ): array
     {
         if (!function_exists('curl_multi_init')) {
             throw new RuntimeException('Concurrent downloads require the cURL extension.');
@@ -250,6 +259,9 @@ class ConcurrentDownloader
         try {
             // Main event loop: process batches + files concurrently
             while (count($active) > 0 || $nextFileIndex < $totalFiles || $nextBatchIndex < $totalBatches) {
+                if ($tickCallback) {
+                    $tickCallback();
+                }
                 // Add batch and file handles up to concurrency limit
                 $availableSlots = $maxConcurrency - count($active);
 
@@ -338,6 +350,9 @@ class ConcurrentDownloader
 
                 // Wait for activity
                 if (!empty($active)) {
+                    if ($tickCallback) {
+                        $tickCallback();
+                    }
                     $select = curl_multi_select($multi, 1.0);
                     if ($select === -1) {
                         usleep(100000);

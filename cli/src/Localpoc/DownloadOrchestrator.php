@@ -39,6 +39,8 @@ class DownloadOrchestrator
 
         $workspace = null;
         $zipPath = null;
+        $dbJobId = null;
+        $dbJobFinished = false;
 
         try {
             $workspace = ArchiveBuilder::createTempWorkspace($outputDir);
@@ -49,55 +51,66 @@ class DownloadOrchestrator
 
             $adminAjaxUrl = Http::buildAdminAjaxUrl($url);
             $this->info('Using API base: ' . $adminAjaxUrl);
-            $this->info('Starting manifest job...');
 
             $jobId = null;
             $partition = null;
             $jobTotals = ['total_files' => 0, 'total_bytes' => 0];
 
-            // Start database export job
-            $this->info('Initializing database export job...');
+            // Start database export job (asynchronous chunks)
+            $this->info('Starting database export job...');
             $dbJobInfo = DatabaseJobClient::initJob($adminAjaxUrl, $key);
             $dbJobId = $dbJobInfo['job_id'];
-            $dbTotalRows = $dbJobInfo['total_rows'] ?? 0;
-            $dbBytesWritten = $dbJobInfo['bytes_written'] ?? 0;
+            $dbJobState = [
+                'bytes_written'   => (int) ($dbJobInfo['bytes_written'] ?? 0),
+                'reported_bytes'  => 0,
+                'estimated_bytes' => (int) ($dbJobInfo['estimated_bytes'] ?? 0),
+                'done'            => false,
+            ];
+            $dbJobFinished = false;
 
-            $this->info(sprintf('DB job %s: %d tables, ~%d rows', $dbJobId, $dbJobInfo['total_tables'] ?? 0, $dbTotalRows));
-
-            // Process database chunks
-            $this->info('Processing database chunks...');
-            $dbDone = false;
-            while (!$dbDone) {
-                $dbProgress = DatabaseJobClient::processChunk($adminAjaxUrl, $key, $dbJobId);
-                $dbBytesWritten = $dbProgress['bytes_written'] ?? 0;
-                $dbDone = $dbProgress['done'] ?? false;
-
-                $this->info(sprintf(
-                    'DB: Tables %d/%d, %s',
-                    $dbProgress['completed_tables'] ?? 0,
-                    $dbProgress['total_tables'] ?? 0,
-                    $this->formatBytes($dbBytesWritten)
-                ));
-
-                if (!$dbDone) {
-                    usleep(100000); // 100ms between chunks
-                }
-            }
-
-            $this->info('Database chunks complete. Downloading SQL file...');
-            DatabaseJobClient::downloadDatabase(
-                $adminAjaxUrl,
-                $key,
+            $this->info(sprintf(
+                'DB job %s: %d tables (~%d rows)',
                 $dbJobId,
-                $dbPath,
-                function (int $bytes): void {
-                    // Progress callback during download
-                }
-            );
-            DatabaseJobClient::finishJob($adminAjaxUrl, $key, $dbJobId);
-            $this->info('Database downloaded successfully.');
+                $dbJobInfo['total_tables'] ?? 0,
+                $dbJobInfo['total_rows'] ?? 0
+            ));
 
-            // Collect file manifest
+            $lastDbPoll = 0.0;
+            $reportDbProgress = function (int $newBytes) use (&$dbJobState): void {
+                if ($newBytes <= $dbJobState['reported_bytes']) {
+                    return;
+                }
+                $delta = $newBytes - $dbJobState['reported_bytes'];
+                $dbJobState['reported_bytes'] = $newBytes;
+                $this->progressTracker->incrementDbBytes($delta);
+            };
+
+            $pollDbJob = function (bool $force = false) use (&$dbJobState, &$lastDbPoll, $adminAjaxUrl, $key, $dbJobId, $reportDbProgress): void {
+                if ($dbJobState['done']) {
+                    return;
+                }
+
+                $now = microtime(true);
+                if (!$force && ($now - $lastDbPoll) < 0.5) {
+                    return;
+                }
+                $lastDbPoll = $now;
+
+                $progress = DatabaseJobClient::processChunk($adminAjaxUrl, $key, $dbJobId);
+                $newBytes = (int) ($progress['bytes_written'] ?? $dbJobState['bytes_written']);
+                if ($newBytes > $dbJobState['bytes_written']) {
+                    $dbJobState['bytes_written'] = $newBytes;
+                    $reportDbProgress($newBytes);
+                }
+
+                if (!empty($progress['done'])) {
+                    $dbJobState['done'] = true;
+                }
+            };
+
+            // Kick off an initial chunk
+            $pollDbJob(true);
+
             $this->info('Starting file manifest job...');
             try {
                 $jobInfo = ManifestCollector::initializeJob($adminAjaxUrl, $key);
@@ -120,7 +133,10 @@ class DownloadOrchestrator
             $largeFiles = $partition['large'];
             $batches = $partition['batches'];
 
-            $this->progressTracker->initCounters($fileCount, $totalSize, $dbBytesWritten);
+            $this->progressTracker->initCounters($fileCount, $totalSize, $dbJobState['estimated_bytes']);
+            if ($dbJobState['bytes_written'] > 0) {
+                $reportDbProgress($dbJobState['bytes_written']);
+            }
 
             $this->info(sprintf(
                 'Manifest ready: %d files (%d bytes) -> %d large, %d batches',
@@ -130,9 +146,9 @@ class DownloadOrchestrator
                 count($batches)
             ));
 
-            $this->info('Starting file downloads...');
+            $this->info('Starting file downloads (DB job continues in background)...');
 
-            // Download files only (no DB in concurrent downloads)
+            // Download files only (DB job polled via callback)
             $results = $this->downloader->downloadFilesOnly(
                 $adminAjaxUrl,
                 $key,
@@ -142,6 +158,9 @@ class DownloadOrchestrator
                 $concurrency,
                 function (int $bytes): void {
                     $this->progressTracker->incrementFileBytes($bytes);
+                },
+                function () use ($pollDbJob): void {
+                    $pollDbJob();
                 }
             );
 
@@ -149,7 +168,7 @@ class DownloadOrchestrator
             $failures = $results['files_failed'] + $results['batch_files_failed'];
 
             $this->progressTracker->render(true, true);
-            $this->info('Database: OK');
+            $this->info('Database: ' . ($dbJobState['done'] ? 'OK' : 'IN PROGRESS'));
             $this->info(sprintf(
                 'Files: %d/%d (failed %d)',
                 $filesDownloaded,
@@ -164,6 +183,24 @@ class DownloadOrchestrator
                 $workspace = null;
                 return 3; // EXIT_HTTP
             }
+
+            // Ensure DB job completes
+            while (!$dbJobState['done']) {
+                $pollDbJob(true);
+                usleep(100000);
+            }
+
+            $this->info('Database export complete. Downloading SQL file...');
+            DatabaseJobClient::downloadDatabase(
+                $adminAjaxUrl,
+                $key,
+                $dbJobId,
+                $dbPath,
+                null
+            );
+            DatabaseJobClient::finishJob($adminAjaxUrl, $key, $dbJobId);
+            $dbJobFinished = true;
+            $this->info('Database downloaded successfully.');
 
             // Build archive
             $hostname = ArchiveBuilder::parseHostname($url);
@@ -189,6 +226,13 @@ class DownloadOrchestrator
             }
             throw $e;
         } finally {
+            if ($dbJobId && !$dbJobFinished) {
+                try {
+                    DatabaseJobClient::finishJob(Http::buildAdminAjaxUrl($url), $key, $dbJobId);
+                } catch (\Throwable $ignored) {
+                    // ignore cleanup errors
+                }
+            }
             if ($workspace !== null) {
                 ArchiveBuilder::cleanupWorkspace($workspace);
             }
