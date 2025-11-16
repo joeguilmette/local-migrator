@@ -11,35 +11,24 @@ You install the plugin on a site, copy the command it shows you, and run that co
 
 ## 1. Install the CLI (PHAR)
 
-### macOS / Linux
+One-liner install (Mac/Linux):
 
-1. Download the latest PHAR from GitHub Releases:
+```bash
+curl -L "https://github.com/joeguilmette/local-migrator-poc/releases/latest/download/localpoc.phar" -o localpoc \
+  && chmod +x localpoc \
+  && sudo mkdir -p /usr/local/bin \
+  && sudo mv localpoc /usr/local/bin/localpoc \
+  && localpoc --help
+```
 
-   ```bash
-   curl -L "https://github.com/joeguilmette/local-migrator-poc/releases/latest/download/localpoc.phar" -o localpoc
-````
-
-2. Make it executable and put it on your `PATH`:
-
-   ```bash
-   chmod +x localpoc
-   sudo mkdir -p /usr/local/bin
-   sudo mv localpoc /usr/local/bin/localpoc
-   ```
-
-3. Check it’s available:
-
-   ```bash
-   localpoc --help
-   ```
-
-If that prints usage, the CLI is installed.
+If the final command prints usage, the CLI is installed.
 
 > Windows: save `localpoc.phar` somewhere and run it as `php localpoc.phar ...` or create a small `.bat` wrapper; details are left to the user.
 
 ---
 
 ## 2. Install the WordPress plugin
+ Install the WordPress plugin
 
 1. Install and activate `plugin/localpoc.php` in your WordPress install.
 
@@ -90,7 +79,61 @@ Exit codes:
 
 ---
 
-## 4. Uninstall
+## 4. Development
+
+These steps are for contributors and release maintainers.
+
+### Requirements
+
+* PHP ^8.0 with the cURL and Phar extensions
+* Composer
+* [humbug/box](https://github.com/box-project/box) listed in `cli/composer.json` (as a dev dependency)
+
+### Build the PHAR from source
+
+```bash
+cd /path/to/localpenis/cli
+composer install
+vendor/bin/box compile
+```
+
+The build artifact is `cli/dist/localpoc.phar`.
+
+### Install locally (for testing)
+
+```bash
+cd /path/to/localpenis/cli
+sudo mkdir -p /usr/local/bin
+sudo install -m 755 dist/localpoc.phar /usr/local/bin/localpoc
+localpoc --help
+```
+
+Or run directly without installing:
+
+```bash
+php dist/localpoc.phar download --url=... --key=... --output=...
+```
+
+### Publish a GitHub release
+
+Use the helper script (requires the [GitHub CLI](https://cli.github.com/) authenticated via `gh auth login`):
+
+```bash
+cd /path/to/localpenis
+./scripts/release-phar.sh v0.1.0
+```
+
+Optionally supply a release-notes file as the second argument:
+
+```bash
+./scripts/release-phar.sh v0.1.0 notes.md
+```
+
+The script installs Composer dependencies, builds the PHAR with Box, and runs `gh release create` with `cli/dist/localpoc.phar` attached as the release asset.
+
+---
+
+## 5. Uninstall
 
 * Remove the CLI:
 
