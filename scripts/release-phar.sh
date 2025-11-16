@@ -114,6 +114,7 @@ echo "[localpoc] Plugin ZIP created: ${PLUGIN_ZIP_PATH}"
 
 # Create releases directory and copy artifacts
 echo "[localpoc] Managing releases directory..."
+rm -rf "${RELEASES_DIR}"
 mkdir -p "${RELEASES_DIR}"
 
 PHAR_RELEASE_NAME="localpoc-${VERSION}.phar"
@@ -122,20 +123,6 @@ PHAR_RELEASE_PATH="${RELEASES_DIR}/${PHAR_RELEASE_NAME}"
 # Copy new artifacts to releases
 cp "${DIST_PHAR}" "${PHAR_RELEASE_PATH}"
 cp "${PLUGIN_ZIP_PATH}" "${RELEASES_DIR}/${PLUGIN_ZIP_NAME}"
-
-echo "[localpoc] Copied artifacts to releases directory."
-
-# Keep only 2 latest PHARs
-echo "[localpoc] Cleaning up old PHAR versions..."
-ls -t "${RELEASES_DIR}"/localpoc-*.phar 2>/dev/null | tail -n +3 | while read -r file; do
-  rm -f "$file"
-done
-
-# Keep only 2 latest plugin ZIPs
-echo "[localpoc] Cleaning up old plugin versions..."
-ls -t "${RELEASES_DIR}"/localpoc-plugin-*.zip 2>/dev/null | tail -n +3 | while read -r file; do
-  rm -f "$file"
-done
 
 echo "[localpoc] Releases directory updated."
 ls -lh "${RELEASES_DIR}"
