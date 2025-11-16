@@ -46,11 +46,6 @@ class ConcurrentDownloader
         $dbComplete = false;
         $dbSuccess = false;
 
-        // Add DB transfer immediately
-        curl_multi_add_handle($multi, $dbTransfer['handle']);
-        $dbId = (int) $dbTransfer['handle'];
-        $active[$dbId] = $dbTransfer;
-
         // Setup batch downloads
         $nextBatchIndex = 0;
         $totalBatches = count($batches);
@@ -62,6 +57,10 @@ class ConcurrentDownloader
         $fileResults = ['succeeded' => 0, 'failed' => 0];
 
         try {
+            // Add DB transfer immediately
+            curl_multi_add_handle($multi, $dbTransfer['handle']);
+            $dbId = (int) $dbTransfer['handle'];
+            $active[$dbId] = $dbTransfer;
             // Main event loop: process DB + batches + files concurrently
             while (!$dbComplete || count($active) > 1 || $nextFileIndex < $totalFiles || $nextBatchIndex < $totalBatches) {
                 // Add batch and file handles up to concurrency limit (excluding DB transfer)

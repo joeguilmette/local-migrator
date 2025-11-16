@@ -56,13 +56,25 @@ class LocalPOC_Ajax_Handlers {
             LocalPOC_Request_Handler::ajax_send_error($paths);
         }
 
-        $files = LocalPOC_Batch_Processor::prepare_batch_files($paths);
+        $batch_result = LocalPOC_Batch_Processor::prepare_batch_files($paths);
+        $files = $batch_result['files'];
+        $skipped = $batch_result['skipped'];
+
         if (empty($files)) {
+            $error_msg = __('No valid files to include.', 'localpoc');
+            if (!empty($skipped)) {
+                $error_msg .= ' ' . sprintf(__('Skipped %d invalid paths.', 'localpoc'), count($skipped));
+            }
             LocalPOC_Request_Handler::ajax_send_error(new WP_Error(
                 'localpoc_no_files',
-                __('No valid files to include.', 'localpoc'),
-                ['status' => 400]
+                $error_msg,
+                ['status' => 400, 'skipped' => $skipped]
             ));
+        }
+
+        // Warn client if some paths were skipped
+        if (!empty($skipped) && !headers_sent()) {
+            header('X-LocalPOC-Skipped: ' . count($skipped));
         }
 
         $result = LocalPOC_Batch_Processor::stream_zip_archive($files);

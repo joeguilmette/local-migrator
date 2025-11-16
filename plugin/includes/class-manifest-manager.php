@@ -20,7 +20,7 @@ class LocalPOC_Manifest_Manager {
      *
      * @param int $offset Starting offset
      * @param int $limit  Number of files to return
-     * @return array Manifest data
+     * @return array Manifest data with 'files' slice and 'all_files' for job storage
      */
     public static function generate_manifest($offset, $limit) {
         $files = LocalPOC_File_Scanner::scan_file_list();
@@ -36,49 +36,89 @@ class LocalPOC_Manifest_Manager {
             'total_files' => $total,
             'files'       => array_values($slice),
             'total_bytes' => $total_bytes,
-            'all_files'   => $files,
+            'all_files'   => $files,  // Only used for save_job, removed before response
         ];
     }
 
     /**
-     * Saves a job with file list to transient storage
+     * Saves a job with file list to chunked transient storage
+     *
+     * Large file lists are split into chunks to avoid exceeding WordPress limits.
      *
      * @param array $files File list
      * @return string Job ID
      */
     public static function save_job(array $files) {
         $job_id = wp_generate_password(20, false, false);
-        $payload = [
+        $chunk_size = 2000; // Files per chunk
+        $chunks = array_chunk($files, $chunk_size);
+        $ttl = 15 * MINUTE_IN_SECONDS;
+
+        // Save metadata
+        $metadata = [
             'created_at'   => time(),
-            'files'        => $files,
             'total_files'  => count($files),
             'total_bytes'  => array_sum(array_column($files, 'size')),
+            'chunk_count'  => count($chunks),
         ];
-        set_transient('localpoc_job_' . $job_id, $payload, 15 * MINUTE_IN_SECONDS);
+        set_transient('localpoc_job_meta_' . $job_id, $metadata, $ttl);
+
+        // Save file chunks
+        foreach ($chunks as $index => $chunk) {
+            set_transient('localpoc_job_chunk_' . $job_id . '_' . $index, $chunk, $ttl);
+        }
+
         return $job_id;
     }
 
     /**
-     * Retrieves a job from transient storage
+     * Retrieves a job from chunked transient storage
+     *
+     * Reassembles file chunks into complete job data.
      *
      * @param string $job_id Job ID
      * @return array|false Job data or false if not found
      */
     public static function get_job($job_id) {
-        $data = get_transient('localpoc_job_' . $job_id);
-        if (!is_array($data) || empty($data['files'])) {
+        $metadata = get_transient('localpoc_job_meta_' . $job_id);
+        if (!is_array($metadata)) {
             return false;
         }
-        return $data;
+
+        $chunk_count = $metadata['chunk_count'] ?? 0;
+        $files = [];
+
+        // Reassemble files from chunks
+        for ($i = 0; $i < $chunk_count; $i++) {
+            $chunk = get_transient('localpoc_job_chunk_' . $job_id . '_' . $i);
+            if (!is_array($chunk)) {
+                return false; // Missing chunk
+            }
+            $files = array_merge($files, $chunk);
+        }
+
+        return [
+            'created_at'  => $metadata['created_at'],
+            'total_files' => $metadata['total_files'],
+            'total_bytes' => $metadata['total_bytes'],
+            'files'       => $files,
+        ];
     }
 
     /**
-     * Deletes a job from transient storage
+     * Deletes a job and all its chunks from transient storage
      *
      * @param string $job_id Job ID
      */
     public static function delete_job($job_id) {
-        delete_transient('localpoc_job_' . $job_id);
+        $metadata = get_transient('localpoc_job_meta_' . $job_id);
+        if (is_array($metadata)) {
+            $chunk_count = $metadata['chunk_count'] ?? 0;
+            for ($i = 0; $i < $chunk_count; $i++) {
+                delete_transient('localpoc_job_chunk_' . $job_id . '_' . $i);
+            }
+        }
+        delete_transient('localpoc_job_meta_' . $job_id);
     }
 
     /**
@@ -153,6 +193,14 @@ class LocalPOC_Manifest_Manager {
 
         $job_id = self::save_job($files);
         $job = self::get_job($job_id);
+
+        if (!$job) {
+            return new WP_Error(
+                'localpoc_job_save_failed',
+                __('Failed to save manifest job.', 'localpoc'),
+                ['status' => 500]
+            );
+        }
 
         return [
             'job_id'      => $job_id,

@@ -44,7 +44,7 @@ class LocalPOC_File_Scanner {
             }
         }
 
-        // Exclude cache and backup directories
+        // Exclude cache and backup directories (exact match or with trailing slash)
         $relative_lower = strtolower($relative);
         $dir_prefixes = [
             'wp-content/cache',
@@ -54,7 +54,8 @@ class LocalPOC_File_Scanner {
             'wp-content/backups',
         ];
         foreach ($dir_prefixes as $prefix) {
-            if (strpos($relative_lower, $prefix) === 0) {
+            // Match if path equals prefix or starts with prefix + '/'
+            if ($relative_lower === $prefix || str_starts_with($relative_lower, $prefix . '/')) {
                 return true;
             }
         }

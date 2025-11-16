@@ -45,23 +45,28 @@ class LocalPOC_Batch_Processor {
     /**
      * Prepares batch files by resolving and validating paths
      *
-     * Skips invalid paths silently instead of failing entire batch.
+     * Returns both valid files and list of skipped paths for client reporting.
      *
      * @param array $paths Array of relative paths
-     * @return array Array of file info with 'relative' and 'resolved' keys
+     * @return array Array with 'files' (valid) and 'skipped' (invalid paths) keys
      */
     public static function prepare_batch_files(array $paths) {
         $files = [];
+        $skipped = [];
+
         foreach ($paths as $path) {
             if (!is_string($path) || $path === '') {
+                $skipped[] = $path;
                 continue;
             }
             $relative = LocalPOC_Path_Resolver::normalize_relative_path($path);
             if ($relative === '') {
+                $skipped[] = $path;
                 continue;
             }
             $resolved = LocalPOC_Path_Resolver::resolve_relative_path($relative);
             if ($resolved instanceof WP_Error || !is_file($resolved)) {
+                $skipped[] = $relative;
                 continue;
             }
             $files[] = [
@@ -70,7 +75,10 @@ class LocalPOC_Batch_Processor {
             ];
         }
 
-        return $files;
+        return [
+            'files' => $files,
+            'skipped' => $skipped,
+        ];
     }
 
     /**
