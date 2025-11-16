@@ -1,9 +1,9 @@
 # LocalPOC – WordPress Download POC
 
-LocalPOC pairs a WordPress plugin (`plugin/localpoc.php`) with a cross-platform CLI (`localpoc/`) to download entire WordPress sites through authenticated REST endpoints. Install the plugin on a site to generate a CLI command, then run that command locally to pull files and the database via parallel transfers.
+LocalPOC pairs a WordPress plugin (`plugin/localpoc.php`) with a cross-platform CLI (`cli/`) to download entire WordPress sites through authenticated REST endpoints. Install the plugin on a site to generate a CLI command, then run that command locally to pull files and the database via parallel transfers.
 
 > **Quick CLI Install**
-> 1. `cd localpoc`
+> 1. `cd cli`
 > 2. `composer install`
 > 3. `composer global require humbug/box`
 > 4. `vendor/bin/box compile`
@@ -13,7 +13,7 @@ LocalPOC pairs a WordPress plugin (`plugin/localpoc.php`) with a cross-platform 
 ## Repository Layout
 ```
 plugin/                 # WordPress plugin powering the REST endpoints
-localpoc/               # PHP CLI packaged as a PHAR
+cli/                    # PHP CLI packaged as a PHAR
 ```
 
 ## Requirements
@@ -28,29 +28,29 @@ localpoc/               # PHP CLI packaged as a PHAR
 3. Keep the command handy for the CLI step below.
 
 ## CLI Build Steps
-1. `cd localpoc`
+1. `cd cli`
 2. `composer install`
 3. `composer global require humbug/box`
 4. `vendor/bin/box compile`
 
-The compiled artifact is `localpoc/dist/localpoc.phar`.
+The compiled artifact is `cli/dist/localpoc.phar`.
 
 ## CLI Installation Options
 ### PHAR (recommended)
 ```bash
-sudo mv localpoc/dist/localpoc.phar /usr/local/bin/localpoc
+sudo mv cli/dist/localpoc.phar /usr/local/bin/localpoc
 sudo chmod +x /usr/local/bin/localpoc
 ```
 
 ### Composer Global (developer convenience)
 ```bash
-composer global config repositories.localpoc path $(pwd)/localpoc
+composer global config repositories.localpoc path $(pwd)/cli
 composer global require localpoc/localpoc:dev-main
 ```
 Ensure Composer's global `vendor/bin` directory is on your `PATH` to invoke `localpoc` anywhere.
 
 ### Windows
-Place `localpoc/dist/localpoc.phar` and `localpoc/windows/localpoc.bat` in a directory on your `PATH` (update the `.bat` file if `php.exe` lives elsewhere).
+Place `cli/dist/localpoc.phar` and `cli/windows/localpoc.bat` in a directory on your `PATH` (update the `.bat` file if `php.exe` lives elsewhere).
 
 ## Usage
 ```
