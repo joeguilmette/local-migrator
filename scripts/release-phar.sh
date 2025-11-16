@@ -44,11 +44,11 @@ fi
 popd >/dev/null
 
 echo "[localpoc] Creating GitHub release ${TAG}..."
-GH_ARGS=("${TAG}" "${DIST_PHAR}" "--title" "LocalPOC ${TAG}")
+GH_ARGS=("${TAG}" "${DIST_PHAR}" "--title" "LocalPOC CLI ${TAG}")
 if [[ -n "${NOTES_FILE}" ]]; then
   GH_ARGS+=("--notes-file" "${NOTES_FILE}")
 else
-  GH_ARGS+=("--notes" "Automated release for LocalPOC ${TAG}.")
+  GH_ARGS+=("--notes" "Automated release for LocalPOC CLI ${TAG}.")
 fi
 
 gh release create "${GH_ARGS[@]}"
