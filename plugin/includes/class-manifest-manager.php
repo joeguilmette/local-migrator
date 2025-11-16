@@ -180,7 +180,6 @@ class LocalPOC_Manifest_Manager {
      * @return array|WP_Error Job info or WP_Error
      */
     public static function create_manifest_job($mode = 'default') {
-        // TODO: support asynchronous scan modes via $mode parameter.
         try {
             $files = LocalPOC_File_Scanner::scan_file_list();
         } catch (UnexpectedValueException $e) {

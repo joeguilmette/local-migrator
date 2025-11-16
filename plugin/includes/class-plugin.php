@@ -40,9 +40,6 @@ class LocalPOC_Plugin {
         add_action('wp_ajax_localpoc_files_batch_zip', [LocalPOC_Ajax_Handlers::class, 'files_batch_zip']);
         add_action('wp_ajax_nopriv_localpoc_files_batch_zip', [LocalPOC_Ajax_Handlers::class, 'files_batch_zip']);
 
-        add_action('wp_ajax_localpoc_db_stream', [LocalPOC_Ajax_Handlers::class, 'db_stream']);
-        add_action('wp_ajax_nopriv_localpoc_db_stream', [LocalPOC_Ajax_Handlers::class, 'db_stream']);
-
         add_action('wp_ajax_localpoc_db_meta', [LocalPOC_Ajax_Handlers::class, 'db_meta']);
         add_action('wp_ajax_nopriv_localpoc_db_meta', [LocalPOC_Ajax_Handlers::class, 'db_meta']);
 
@@ -65,8 +62,6 @@ class LocalPOC_Plugin {
         add_action('wp_ajax_localpoc_db_job_finish', [LocalPOC_Ajax_Handlers::class, 'db_job_finish']);
         add_action('wp_ajax_nopriv_localpoc_db_job_finish', [LocalPOC_Ajax_Handlers::class, 'db_job_finish']);
 
-        // Register REST routes for compatibility
-        add_action('rest_api_init', [LocalPOC_Rest_Handlers::class, 'register_routes']);
     }
 
     /**

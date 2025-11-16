@@ -128,7 +128,7 @@ class LocalPOC_Ajax_Handlers {
             LocalPOC_Request_Handler::ajax_send_error($auth_result);
         }
 
-        wp_send_json(LocalPOC_Database_Exporter::get_db_meta_data());
+        wp_send_json(LocalPOC_Database_Job_Manager::get_db_meta_data());
     }
 
     /**
@@ -205,58 +205,6 @@ class LocalPOC_Ajax_Handlers {
 
         fclose($handle);
         fclose($output);
-        exit;
-    }
-
-    /**
-     * AJAX: Streams SQL export of database
-     */
-    public static function db_stream() {
-        $auth_result = LocalPOC_Auth::validate_access_key(LocalPOC_Auth::get_request_key());
-        if ($auth_result instanceof WP_Error) {
-            LocalPOC_Request_Handler::ajax_send_error($auth_result);
-        }
-
-        global $wpdb;
-
-        if (!$wpdb instanceof wpdb) {
-            LocalPOC_Request_Handler::ajax_send_error(new WP_Error(
-                'localpoc_db_unavailable',
-                __('Database connection unavailable.', 'localpoc'),
-                ['status' => 500]
-            ));
-        }
-
-        $tables = $wpdb->get_col('SHOW TABLES');
-        if (!is_array($tables)) {
-            LocalPOC_Request_Handler::ajax_send_error(new WP_Error(
-                'localpoc_db_list_failed',
-                __('Unable to list database tables.', 'localpoc'),
-                ['status' => 500]
-            ));
-        }
-
-        if (function_exists('nocache_headers')) {
-            nocache_headers();
-        }
-
-        if (function_exists('set_time_limit')) {
-            @set_time_limit(0);
-        }
-
-        if (!headers_sent()) {
-            header('Content-Type: text/plain; charset=' . get_option('blog_charset'));
-            header('Content-Disposition: attachment; filename="localpoc-backup.sql"');
-            header('Cache-Control: no-store, no-transform');
-        }
-
-        echo "-- LocalPOC database export generated at " . current_time('mysql') . "\n\n";
-
-        foreach ($tables as $table_name) {
-            LocalPOC_Database_Exporter::stream_table_structure($table_name, $wpdb);
-            LocalPOC_Database_Exporter::stream_table_rows($table_name, $wpdb);
-        }
-
         exit;
     }
 

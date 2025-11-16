@@ -19,68 +19,6 @@ class BatchZipExtractor
     }
 
     /**
-     * Downloads and extracts batch ZIP files
-     *
-     * @param string $adminAjaxUrl Admin AJAX URL
-     * @param string $key          Access key
-     * @param array  $batches      Array of file batches
-     * @param string $outputDir    Output directory
-     * @return array Results with batches, files, failed counts
-     * @throws RuntimeException If ZipArchive extension not available
-     */
-    public function downloadBatches(string $adminAjaxUrl, string $key, array $batches, string $outputDir): array
-    {
-        if (!class_exists('ZipArchive')) {
-            throw new RuntimeException('PHP ZipArchive extension is required for batch downloads.');
-        }
-
-        $results = [
-            'batches' => 0,
-            'files'   => 0,
-            'failed'  => 0,
-        ];
-
-        $batchUrl = $adminAjaxUrl . '?action=localpoc_files_batch_zip';
-
-        foreach ($batches as $batch) {
-            $results['batches']++;
-            $tempZip = tempnam(sys_get_temp_dir(), 'localpoc-batch');
-            if ($tempZip === false) {
-                throw new RuntimeException('Unable to create temp file for batch download.');
-            }
-
-            try {
-                $paths = array_column($batch, 'path');
-                Http::streamToFile(
-                    $batchUrl,
-                    ['paths' => $paths],
-                    $key,
-                    $tempZip,
-                    600,
-                    null,
-                    null,
-                    true
-                );
-                $this->extractZipArchive($tempZip, $outputDir);
-                $results['files'] += count($batch);
-                $this->progressTracker->markBatchSuccess($batch);
-            } catch (HttpException $e) {
-                $results['failed'] += count($batch);
-                $this->progressTracker->markBatchFailure(count($batch));
-                fwrite(STDERR, "[localpoc] ERROR: Batch download failed: " . $e->getMessage() . "\n");
-            } catch (RuntimeException $e) {
-                $results['failed'] += count($batch);
-                $this->progressTracker->markBatchFailure(count($batch));
-                fwrite(STDERR, "[localpoc] ERROR: Batch extraction failed: " . $e->getMessage() . "\n");
-            } finally {
-                @unlink($tempZip);
-            }
-        }
-
-        return $results;
-    }
-
-    /**
      * Extracts a ZIP archive to output directory
      *
      * Includes path traversal protection.
