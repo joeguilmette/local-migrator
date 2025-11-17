@@ -12,7 +12,7 @@ use Localpoc\UI\TerminalRenderer;
  */
 class Cli
 {
-    private const VERSION = '0.0.24';
+    private const VERSION = '0.0.26';
 
     private const DEFAULT_OUTPUT = './local-backup';
     private const DEFAULT_CONCURRENCY = 4;
@@ -90,7 +90,6 @@ class Cli
             'key'         => '',
             'output'      => self::DEFAULT_OUTPUT,
             'concurrency' => self::DEFAULT_CONCURRENCY,
-            'plain'       => false,
             'verbose'     => false,
         ];
 
@@ -103,8 +102,6 @@ class Cli
                 $options['output'] = substr($arg, 9);
             } elseif (str_starts_with($arg, '--concurrency=')) {
                 $options['concurrency'] = (int) substr($arg, 14);
-            } elseif ($arg === '--plain') {
-                $options['plain'] = true;
             } elseif ($arg === '--verbose' || $arg === '-v') {
                 $options['verbose'] = true;
             }
@@ -133,8 +130,8 @@ class Cli
      */
     private function handleDownload(array $options): int
     {
-        // Initialize renderer
-        $renderer = new TerminalRenderer($options['plain']);
+        // Initialize renderer (auto-detects terminal capabilities)
+        $renderer = new TerminalRenderer();
 
         // Initialize components
         $batchExtractor = new BatchZipExtractor();
@@ -156,13 +153,12 @@ Usage: lm download --url=<URL> --key=<KEY> [OPTIONS]
 Options:
   --output=<DIR>      Output directory (default: ./local-backup)
   --concurrency=<N>   Number of parallel downloads (default: 4)
-  --plain             Use plain text output (no progress bars)
   --verbose, -v       Show debug output
 
 Examples:
   lm download --url="https://site.com" --key="ABC123"
-  lm download --url="https://site.com" --key="ABC123" --plain
   lm download --url="https://site.com" --key="ABC123" --verbose
+  lm download --url="https://site.com" --key="ABC123" --output=./backups
 
 USAGE;
         fwrite(STDOUT, $usage);

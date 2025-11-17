@@ -15,6 +15,7 @@ class DownloadOrchestrator
     private TerminalRenderer $renderer;
     private ProgressState $progress;
     private bool $verbose = false;
+    private float $lastRenderTime = 0.0;
 
     public function __construct(ConcurrentDownloader $downloader, ?TerminalRenderer $renderer = null, bool $verbose = false)
     {
@@ -87,25 +88,15 @@ class DownloadOrchestrator
                 $dbJobInfo['total_rows'] ?? 0
             ));
 
-            // Update progress state
+            // Update progress state - DB tracked by rows only
             $this->progress->dbTotalRows = $dbJobState['total_rows'];
             $this->progress->dbRowsProcessed = $dbJobState['rows_processed'];
-            $this->progress->dbEstimatedBytes = $dbJobState['estimated_bytes'];
             $this->updateRenderer();
 
             $lastDbPoll = 0.0;
-            $reportDbProgress = function (int $newBytes) use (&$dbJobState): void {
-                if ($newBytes <= $dbJobState['reported_bytes']) {
-                    return;
-                }
-                $delta = $newBytes - $dbJobState['reported_bytes'];
-                $dbJobState['reported_bytes'] = $newBytes;
-                $this->progress->dbBytesExported = $newBytes;
-                $this->updateRenderer();
-            };
 
             $lastDbLog = 0.0;
-            $pollDbJob = function (bool $force = false) use (&$dbJobState, &$lastDbPoll, &$lastDbLog, $adminAjaxUrl, $key, $dbJobId, $reportDbProgress): void {
+            $pollDbJob = function (bool $force = false) use (&$dbJobState, &$lastDbPoll, &$lastDbLog, $adminAjaxUrl, $key, $dbJobId): void {
                 if ($dbJobState['done']) {
                     return;
                 }
@@ -120,7 +111,7 @@ class DownloadOrchestrator
                 $newBytes = (int) ($progress['bytes_written'] ?? $dbJobState['bytes_written']);
                 if ($newBytes > $dbJobState['bytes_written']) {
                     $dbJobState['bytes_written'] = $newBytes;
-                    $reportDbProgress($newBytes);
+                    // Don't track DB export bytes, only rows
                 }
 
                 $rowsProcessed = (int) ($progress['rows_processed'] ?? $dbJobState['rows_processed']);
@@ -202,12 +193,8 @@ class DownloadOrchestrator
             $largeFiles = $partition['large'];
             $batches = $partition['batches'];
 
-            // Update progress state
+            // Update progress state - files tracked by count only
             $this->progress->filesTotalCount = $fileCount;
-            $this->progress->filesTotalBytes = $totalSize;
-            if ($dbJobState['bytes_written'] > 0) {
-                $reportDbProgress($dbJobState['bytes_written']);
-            }
             $this->updateRenderer();
 
             $this->debug(sprintf(
@@ -231,7 +218,9 @@ class DownloadOrchestrator
                 $filesRoot,
                 $concurrency,
                 function (int $bytes, int $filesCompleted = 0, int $filesFailed = 0, ?string $currentFile = null): void {
-                    $this->progress->fileBytesDownloaded += $bytes;
+                    // Track actual network transfer
+                    $this->progress->bytesTransferred += $bytes;
+
                     if ($filesCompleted > 0) {
                         $this->progress->filesCompleted = $filesCompleted;
                     }
@@ -241,7 +230,11 @@ class DownloadOrchestrator
                     if ($currentFile !== null) {
                         $this->progress->currentActivity = 'Downloading: ' . basename($currentFile);
                     }
-                    $this->updateRenderer();
+
+                    // Use centralized throttle rendering
+                    if ($this->shouldRender()) {
+                        $this->updateRenderer();
+                    }
                 },
                 function () use ($pollDbJob): void {
                     $pollDbJob();
@@ -290,8 +283,13 @@ class DownloadOrchestrator
                 $dbPath,
                 function (int $bytes) use (&$downloadedBytes): void {
                     $downloadedBytes += $bytes;
-                    $this->progress->dbBytesDownloaded = $downloadedBytes;
-                    $this->updateRenderer();
+                    // Track actual network transfer for DB download
+                    $this->progress->bytesTransferred += $bytes;
+
+                    // Use centralized throttle rendering
+                    if ($this->shouldRender()) {
+                        $this->updateRenderer();
+                    }
                 }
             );
 
@@ -316,6 +314,21 @@ class DownloadOrchestrator
             $dbJobFinished = true;
             $this->info('Database downloaded successfully.');
 
+            // Validate download completeness
+            $validation = $this->validateDownload($fileCount, $filesDownloaded);
+            if (!$validation['success']) {
+                $this->debug('Warning: Download validation failed');
+                if (!$validation['db_complete']) {
+                    $this->debug('- Database incomplete');
+                }
+                if (!$validation['files_match']) {
+                    $this->debug('- File count mismatch');
+                }
+                if (!$validation['bytes_transferred']) {
+                    $this->debug('- No bytes transferred');
+                }
+            }
+
             // Build archive
             $this->progress->currentActivity = 'Creating archive';
             $this->updateRenderer();
@@ -327,7 +340,6 @@ class DownloadOrchestrator
             ArchiveBuilder::createZipArchive($workspace, $zipPath);
             $archiveSize = is_file($zipPath) ? filesize($zipPath) : 0;
 
-            $this->progress->archiveBytes = $archiveSize;
             $this->progress->currentActivity = 'Complete';
             $this->updateRenderer();
 
@@ -337,8 +349,8 @@ class DownloadOrchestrator
                 $this->formatBytes($archiveSize)
             ));
 
-            // Show final summary with renderer
-            $this->renderer->showSummary($zipPath, $archiveSize, $this->progress);
+            // Show final summary with renderer (validation already computed above)
+            $this->renderer->showSummary($zipPath, $archiveSize, $this->progress, $validation);
 
             ArchiveBuilder::cleanupWorkspace($workspace);
             $workspace = null;
@@ -408,5 +420,37 @@ class DownloadOrchestrator
             return $bytes . ' B';
         }
         return '0 B';
+    }
+
+    /**
+     * Check if we should render based on throttling
+     */
+    private function shouldRender(): bool
+    {
+        $now = microtime(true);
+        if (($now - $this->lastRenderTime) >= 0.2) {
+            $this->lastRenderTime = $now;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Validate download completeness
+     */
+    private function validateDownload(int $fileCount, int $filesDownloaded): array
+    {
+        $validation = [
+            'db_complete' => $this->progress->dbRowsProcessed === $this->progress->dbTotalRows,
+            'files_match' => $filesDownloaded === $fileCount,
+            'bytes_transferred' => $this->progress->bytesTransferred > 0,
+            'success' => true
+        ];
+
+        $validation['success'] = $validation['db_complete'] &&
+                                 $validation['files_match'] &&
+                                 $validation['bytes_transferred'];
+
+        return $validation;
     }
 }
