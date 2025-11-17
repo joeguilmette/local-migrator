@@ -110,7 +110,7 @@ Use the helper script (`scripts/release.sh`, requires the [GitHub CLI](https://c
 ./scripts/release.sh
 ```
 
-The script builds the plugin ZIP and PHAR, then creates or updates the GitHub release (attaching `local-migrator-plugin-<version>.zip` and `cli/dist/local-migrator.phar`). It also installs the freshly built PHAR locally (handling the `lm`/`lm-wp` fallback automatically).
+The script builds the plugin ZIP and PHAR, then creates or updates the GitHub release (attaching `local-migrator-plugin-<version>.zip` and `cli/dist/local-migrator.phar`). It also installs the freshly built PHAR locally.
 
 ---
 
