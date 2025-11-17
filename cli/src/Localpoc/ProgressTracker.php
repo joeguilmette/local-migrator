@@ -28,6 +28,16 @@ class ProgressTracker
     }
 
     /**
+     * Gets current progress counts
+     *
+     * @return array Current progress state
+     */
+    public function getCurrentCounts(): array
+    {
+        return $this->progress;
+    }
+
+    /**
      * Initializes progress counters
      *
      * @param int $fileTotal Total number of files

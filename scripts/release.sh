@@ -231,11 +231,11 @@ ls -lh "${RELEASES_DIR}"
 rm -f "${PLUGIN_ZIP_PATH}"
 
 echo "[localpoc] Creating GitHub release ${TAG}..."
-GH_ARGS=("${TAG}" "${PHAR_RELEASE_PATH}" "${RELEASES_DIR}/${PLUGIN_ZIP_NAME}" "--title" "LocalPOC CLI ${TAG}")
+GH_ARGS=("${TAG}" "${PHAR_RELEASE_PATH}" "${RELEASES_DIR}/${PLUGIN_ZIP_NAME}" "--title" "Local Migrator ${TAG}")
 if [[ -n "${NOTES_FILE}" ]]; then
   GH_ARGS+=("--notes-file" "${NOTES_FILE}")
 else
-  GH_ARGS+=("--notes" "Automated release for LocalPOC CLI ${TAG}.")
+  GH_ARGS+=("--notes" "Automated release for Local Migrator ${TAG}.")
 fi
 
 gh release create "${GH_ARGS[@]}"

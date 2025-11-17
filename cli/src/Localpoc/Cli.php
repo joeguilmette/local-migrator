@@ -5,6 +5,7 @@ namespace Localpoc;
 
 use InvalidArgumentException;
 use RuntimeException;
+use Localpoc\UI\TerminalRenderer;
 
 /**
  * Main CLI entry point
@@ -89,6 +90,7 @@ class Cli
             'key'         => '',
             'output'      => self::DEFAULT_OUTPUT,
             'concurrency' => self::DEFAULT_CONCURRENCY,
+            'plain'       => false,
         ];
 
         foreach ($args as $arg) {
@@ -100,6 +102,8 @@ class Cli
                 $options['output'] = substr($arg, 9);
             } elseif (str_starts_with($arg, '--concurrency=')) {
                 $options['concurrency'] = (int) substr($arg, 14);
+            } elseif ($arg === '--plain') {
+                $options['plain'] = true;
             }
         }
 
@@ -126,11 +130,14 @@ class Cli
      */
     private function handleDownload(array $options): int
     {
+        // Initialize renderer
+        $renderer = new TerminalRenderer($options['plain']);
+
         // Initialize components
         $progressTracker = new ProgressTracker();
         $batchExtractor = new BatchZipExtractor($progressTracker);
         $downloader = new ConcurrentDownloader($progressTracker, $batchExtractor);
-        $orchestrator = new DownloadOrchestrator($progressTracker, $downloader);
+        $orchestrator = new DownloadOrchestrator($progressTracker, $downloader, $renderer);
 
         // Execute download workflow
         return $orchestrator->handleDownload($options);
@@ -141,8 +148,20 @@ class Cli
      */
     private function printUsage(): void
     {
-        $usage = "Usage: localpoc download --url=<URL> --key=<KEY> [--output=<DIR>] [--concurrency=<N>]";
-        fwrite(STDOUT, $usage . "\n");
+        $usage = <<<USAGE
+Usage: localpoc download --url=<URL> --key=<KEY> [OPTIONS]
+
+Options:
+  --output=<DIR>      Output directory (default: ./local-backup)
+  --concurrency=<N>   Number of parallel downloads (default: 4)
+  --plain             Use plain text output (no progress bars)
+
+Examples:
+  localpoc download --url="https://site.com" --key="ABC123"
+  localpoc download --url="https://site.com" --key="ABC123" --plain
+
+USAGE;
+        fwrite(STDOUT, $usage);
         fwrite(STDOUT, "Version: " . self::VERSION . "\n");
     }
 

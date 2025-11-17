@@ -1,6 +1,6 @@
-# LocalPOC – WordPress Download POC
+# Local Migrator – WordPress Download POC
 
-LocalPOC has two parts:
+Local Migrator has two parts:
 
 - A WordPress plugin (`plugin/localpoc.php`) that exposes authenticated REST endpoints.
 - A CLI (`localpoc`), packaged as a PHAR, that connects to the plugin and downloads the site (files + database) efficiently.
@@ -9,7 +9,12 @@ You install the plugin on a site, copy the command it shows you, and run that co
 
 ---
 
-## 1. Install the CLI (PHAR)
+## 1. Install the WordPress plugin
+
+1. Download the latest `localpoc-plugin.zip` from the [releases page](https://github.com/joeguilmette/local-migrator-poc/releases/latest).
+2. Install and activate the plugin in WordPress.
+
+## 2. Install the CLI (PHAR)
 
 One-liner install (Mac/Linux):
 
@@ -20,25 +25,6 @@ curl -L "https://github.com/joeguilmette/local-migrator-poc/releases/latest/down
   && sudo mv localpoc /usr/local/bin/localpoc \
   && localpoc --help
 ```
-
-If the final command prints usage, the CLI is installed.
-
-> Windows: save `localpoc.phar` somewhere and run it as `php localpoc.phar ...` or create a small `.bat` wrapper; details are left to the user.
-
----
-
-## 2. Install the WordPress plugin
- Install the WordPress plugin
-
-1. Install and activate `plugin/localpoc.php` in your WordPress install.
-
-2. A “LocalPOC” / “Site Downloader” menu item will appear in the admin. Open it:
-
-   * It shows the **Site URL**.
-   * It shows the **Access Key**.
-   * It shows a ready‑to‑run CLI command.
-
-Copy that command; you’ll use it in the next step.
 
 ---
 
@@ -64,7 +50,7 @@ localpoc download \
   --output="./example-backup"
 ```
 
-On success, LocalPOC will:
+On success, Local Migrator will:
 
 * Stream all `wp-content/` files plus the database into a temporary workspace.
 * Build a single ZIP archive at `<output>/archives/<domain>-<YYYYmmdd-HHMMSS>.zip`.
@@ -86,14 +72,14 @@ These steps are for contributors and release maintainers.
 
 ### Requirements
 
-* PHP ^8.0 with the cURL and Phar extensions
+* PHP ^8.0 with the cURL and PHAR extensions
 * Composer
 * [humbug/box](https://github.com/box-project/box) listed in `cli/composer.json` (as a dev dependency)
 
 ### Build the PHAR from source
 
 ```bash
-cd /path/to/localpenis/cli
+cd /path/to/local-migrator-poc/cli
 composer install
 vendor/bin/box compile
 ```
@@ -103,7 +89,7 @@ The build artifact is `cli/dist/localpoc.phar`.
 ### Install locally (for testing)
 
 ```bash
-cd /path/to/localpenis/cli
+cd /path/to/local-migrator-poc/cli
 sudo mkdir -p /usr/local/bin
 sudo install -m 755 dist/localpoc.phar /usr/local/bin/localpoc
 localpoc --help
@@ -115,24 +101,17 @@ Or run directly without installing:
 php dist/localpoc.phar download --url=... --key=... --output=...
 ```
 
-### Publish a GitHub release
+### Generate Plugin and PHAR, then publish a release
 
-Use the helper script (requires the [GitHub CLI](https://cli.github.com/) authenticated via `gh auth login`):
-
-```bash
-cd /path/to/localpenis
-./scripts/release-phar.sh v0.1.0
-```
-
-Optionally supply a release-notes file as the second argument:
+Use the helper script (`scripts/release.sh`, requires the [GitHub CLI](https://cli.github.com/) with `gh auth login`):
 
 ```bash
-./scripts/release-phar.sh v0.1.0 notes.md
+./scripts/release.sh
 ```
 
-The script installs Composer dependencies, builds the PHAR with Box, and runs `gh release create` with `cli/dist/localpoc.phar` attached as the release asset.
+The script builds the plugin ZIP and PHAR, then creates or updates the GitHub release (attaching `localpoc-plugin-<version>.zip` and `cli/dist/localpoc.phar`).
 
-Provide a notes file as the second argument to override the default release notes. If the release already exists, the script uploads `localpoc-plugin-v0.1.0.zip` via `gh release upload --clobber`.
+It will also install the latest version of the PHAR locally.
 
 ---
 
@@ -148,6 +127,3 @@ Provide a notes file as the second argument to override the default release note
 
   * Deactivate it from the WordPress Plugins screen.
   * Delete `wp-content/plugins/localpoc/`.
-
-```
-```

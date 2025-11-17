@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Localpoc;
 
 use RuntimeException;
+use Localpoc\UI\TerminalRenderer;
 
 /**
  * Orchestrates the download workflow
@@ -12,11 +13,13 @@ class DownloadOrchestrator
 {
     private ProgressTracker $progressTracker;
     private ConcurrentDownloader $downloader;
+    private TerminalRenderer $renderer;
 
-    public function __construct(ProgressTracker $progressTracker, ConcurrentDownloader $downloader)
+    public function __construct(ProgressTracker $progressTracker, ConcurrentDownloader $downloader, ?TerminalRenderer $renderer = null)
     {
         $this->progressTracker = $progressTracker;
         $this->downloader = $downloader;
+        $this->renderer = $renderer ?? new TerminalRenderer();
     }
 
     /**
@@ -31,6 +34,10 @@ class DownloadOrchestrator
         $key = $options['key'];
         $outputDir = $options['output'];
         $concurrency = (int) $options['concurrency'];
+
+        // Initialize renderer with site URL and output directory
+        $siteUrl = parse_url($url, PHP_URL_HOST) ?: $url;
+        $this->renderer->initialize($siteUrl, $outputDir);
 
         $this->info('Starting download command');
         $this->info('Output directory: ' . $outputDir);
@@ -77,6 +84,11 @@ class DownloadOrchestrator
                 $dbJobInfo['total_rows'] ?? 0
             ));
 
+            // Set database total for renderer
+            if ($dbJobState['estimated_bytes'] > 0) {
+                $this->renderer->setDatabaseTotal($dbJobState['estimated_bytes']);
+            }
+
             $lastDbPoll = 0.0;
             $reportDbProgress = function (int $newBytes) use (&$dbJobState): void {
                 if ($newBytes <= $dbJobState['reported_bytes']) {
@@ -85,6 +97,8 @@ class DownloadOrchestrator
                 $delta = $newBytes - $dbJobState['reported_bytes'];
                 $dbJobState['reported_bytes'] = $newBytes;
                 $this->progressTracker->incrementDbBytes($delta);
+                // Update renderer with cumulative bytes
+                $this->renderer->updateDatabase($newBytes);
             };
 
             $lastDbLog = 0.0;
@@ -173,6 +187,9 @@ class DownloadOrchestrator
             $batches = $partition['batches'];
 
             $this->progressTracker->initCounters($fileCount, $totalSize, $dbJobState['estimated_bytes']);
+
+            // Set files total for renderer
+            $this->renderer->setFilesTotal($fileCount, $totalSize);
             if ($dbJobState['bytes_written'] > 0) {
                 $reportDbProgress($dbJobState['bytes_written']);
             }
@@ -187,6 +204,11 @@ class DownloadOrchestrator
 
             $this->info('Starting file downloads (DB job continues in background)...');
 
+            // Track file download progress for renderer
+            $filesCompleted = 0;
+            $filesFailed = 0;
+            $bytesDownloaded = 0;
+
             // Download files only (DB job polled via callback)
             $results = $this->downloader->downloadFilesOnly(
                 $adminAjaxUrl,
@@ -195,8 +217,19 @@ class DownloadOrchestrator
                 $largeFiles,
                 $filesRoot,
                 $concurrency,
-                function (int $bytes): void {
+                function (int $bytes) use (&$bytesDownloaded, &$filesCompleted, &$filesFailed): void {
+                    $bytesDownloaded += $bytes;
+                    // Note: We can't easily track individual file completion here,
+                    // but we can update bytes. The progressTracker handles file counts.
                     $this->progressTracker->incrementFileBytes($bytes);
+
+                    // Update renderer with current state from progressTracker
+                    $counts = $this->progressTracker->getCurrentCounts();
+                    $this->renderer->updateFiles(
+                        $counts['files_completed'] ?? $filesCompleted,
+                        $counts['files_failed'] ?? $filesFailed,
+                        $bytesDownloaded
+                    );
                 },
                 function () use ($pollDbJob): void {
                     $pollDbJob();
@@ -236,8 +269,10 @@ class DownloadOrchestrator
                 $key,
                 $dbJobId,
                 $dbPath,
-                function (int $bytes) use (&$downloadedBytes): void {
+                function (int $bytes) use (&$downloadedBytes, &$dbJobState): void {
                     $downloadedBytes += $bytes;
+                    // FIX: Update the renderer during database download
+                    $this->renderer->updateDatabase($dbJobState['bytes_written'] + $downloadedBytes);
                 }
             );
             if (file_exists($dbPath)) {
@@ -271,6 +306,9 @@ class DownloadOrchestrator
                 $this->formatBytes($archiveSize)
             ));
 
+            // Show final summary with renderer
+            $this->renderer->showSummary($zipPath, $archiveSize);
+
             ArchiveBuilder::cleanupWorkspace($workspace);
             $workspace = null;
 
@@ -301,8 +339,7 @@ class DownloadOrchestrator
      */
     private function info(string $message): void
     {
-        $this->progressTracker->ensureNewline();
-        fwrite(STDOUT, "[localpoc] {$message}\n");
+        $this->renderer->log($message);
     }
 
     private function formatBytes(int $bytes): string
