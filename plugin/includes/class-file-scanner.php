@@ -74,12 +74,8 @@ class LocalPOC_File_Scanner {
         }
 
         // Exclude vendor directories under wp-content/plugins|themes/*/vendor
-        $segments = explode('/', $relative_lower);
-        if (count($segments) >= 3 && in_array($segments[0], ['plugins', 'themes'], true)) {
-            if ($segments[2] === 'vendor' || $segments[1] === 'vendor') {
-                return true;
-            }
-        }
+        // Vendor directories inside plugins/themes must be kept so Composer deps migrate
+
 
         return false;
     }
