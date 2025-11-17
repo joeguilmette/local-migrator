@@ -301,9 +301,17 @@ class LocalPOC_Database_Job_Manager {
                         foreach ($row as $value) {
                             if (is_null($value)) {
                                 $values[] = 'NULL';
-                            } else {
-                                $values[] = "'" . $wpdb->_real_escape($value) . "'";
+                                continue;
                             }
+
+                            $escaped = $wpdb->_real_escape($value);
+                            if (method_exists($wpdb, 'remove_placeholder_escape')) {
+                                $escaped = $wpdb->remove_placeholder_escape($escaped);
+                            } elseif (method_exists($wpdb, 'placeholder_escape')) {
+                                $escaped = str_replace($wpdb->placeholder_escape(), '%', $escaped);
+                            }
+
+                            $values[] = "'" . $escaped . "'";
                         }
                         $insert_values[] = '(' . implode(',', $values) . ')';
                     }
