@@ -218,7 +218,7 @@ class LocalPOC_Plugin {
                 <div class="inside">
                     <p><?php echo esc_html__('To use the download command above, first install the Local Migrator CLI:', 'localpoc'); ?></p>
 
-                    <pre id="localpoc-install-cmd">curl -L https://github.com/joeguilmette/local-migrator-poc/releases/latest/download/local-migrator.phar -o /tmp/local-migrator && chmod +x /tmp/local-migrator && sudo mv /tmp/local-migrator /usr/local/bin/lm</pre>
+                    <pre id="localpoc-install-cmd">curl -sSL https://github.com/joeguilmette/local-migrator-poc/releases/latest/download/local-migrator.phar -o /tmp/local-migrator.phar && chmod +x /tmp/local-migrator.phar && sudo mv /tmp/local-migrator.phar /usr/local/bin/lm</pre>
 
                     <button type="button" id="localpoc-copy-install" class="button">
                         <?php echo esc_html__('Copy Install Command', 'localpoc'); ?>

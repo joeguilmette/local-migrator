@@ -19,22 +19,10 @@ You install the plugin on a site, copy the command it shows you, and run that co
 Run this installer (macOS/Linux) to place the CLI at `/usr/local/bin/lm`. If another tool already uses `lm`, the script automatically falls back to `lm-wp`.
 
 ```bash
-bash <<'INSTALL'
-set -e
-URL="https://github.com/joeguilmette/local-migrator-poc/releases/latest/download/local-migrator.phar"
-TMP="/tmp/local-migrator.phar"
-curl -sSL "$URL" -o "$TMP"
-chmod +x "$TMP"
-TARGET="/usr/local/bin/lm"
-ALT="/usr/local/bin/lm-wp"
-EXISTING="$(command -v lm || true)"
-if [ -n "$EXISTING" ] && [ "$EXISTING" != "$TARGET" ]; then
-  echo "Found existing 'lm' at $EXISTING, installing as 'lm-wp'."
-  TARGET="$ALT"
-fi
-sudo mv "$TMP" "$TARGET"
-echo "Installed to $TARGET"
-INSTALL
+curl -sSL https://github.com/joeguilmette/local-migrator-poc/releases/latest/download/local-migrator.phar \
+  -o /tmp/local-migrator.phar && \
+chmod +x /tmp/local-migrator.phar && \
+sudo mv /tmp/local-migrator.phar /usr/local/bin/lm
 
 lm --help
 ```
