@@ -177,9 +177,9 @@ class LocalPOC_Plugin {
         <div class="wrap localpoc-admin">
             <h1><?php echo esc_html__('Local Migrator', 'localpoc'); ?></h1>
 
-            <div class="lm-card">
-                <h2><?php echo esc_html__('Connection Details', 'localpoc'); ?></h2>
-                <div class="lm-card-body">
+            <div class="card">
+                <h2 class="title"><?php echo esc_html__('Connection Details', 'localpoc'); ?></h2>
+                <div class="inside">
                     <table class="form-table">
                         <tr>
                             <th scope="row"><?php echo esc_html__('Site URL', 'localpoc'); ?></th>
@@ -200,9 +200,9 @@ class LocalPOC_Plugin {
                 </div>
             </div>
 
-            <div class="lm-card">
-                <h2><?php echo esc_html__('CLI Command', 'localpoc'); ?></h2>
-                <div class="lm-card-body">
+            <div class="card">
+                <h2 class="title"><?php echo esc_html__('CLI Command', 'localpoc'); ?></h2>
+                <div class="inside">
                     <p><?php echo esc_html__('Run this command to download your WordPress site:', 'localpoc'); ?></p>
 
                     <pre id="localpoc-cli-command">lm download --url="<?php echo esc_attr($site_url); ?>" --key="<?php echo esc_attr($access_key); ?>" --output="./local-backup"</pre>
@@ -213,9 +213,9 @@ class LocalPOC_Plugin {
                 </div>
             </div>
 
-            <div class="lm-card">
-                <h2><?php echo esc_html__('Next Steps', 'localpoc'); ?></h2>
-                <div class="lm-card-body">
+            <div class="card">
+                <h2 class="title"><?php echo esc_html__('Next Steps', 'localpoc'); ?></h2>
+                <div class="inside">
                     <p><?php echo esc_html__('To use the download command above, first install the Local Migrator CLI:', 'localpoc'); ?></p>
 
                     <pre id="localpoc-install-cmd">curl -L https://github.com/joeguilmette/local-migrator-poc/releases/latest/download/local-migrator.phar -o /tmp/local-migrator && chmod +x /tmp/local-migrator && sudo mv /tmp/local-migrator /usr/local/bin/lm</pre>
