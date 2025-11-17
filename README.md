@@ -16,7 +16,7 @@ You install the plugin on a site, copy the command it shows you, and run that co
 
 ## 2. Install the CLI (PHAR)
 
-Run this installer (macOS/Linux) to place the CLI at `/usr/local/bin/lm`. If another tool already uses `lm`, the script automatically falls back to `lm-wp`.
+Run this installer (macOS/Linux) to place the CLI at `/usr/local/bin/lm`.
 
 ```bash
 curl -sSL https://github.com/joeguilmette/local-migrator-poc/releases/latest/download/local-migrator.phar \
