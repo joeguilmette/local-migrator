@@ -333,4 +333,57 @@ class LocalPOC_Ajax_Handlers {
 
         wp_send_json(['ok' => true]);
     }
+
+    /**
+     * AJAX: Initialize database streaming
+     */
+    public static function db_stream_init() {
+        $auth_result = LocalPOC_Auth::validate_access_key(LocalPOC_Auth::get_request_key());
+        if ($auth_result instanceof WP_Error) {
+            LocalPOC_Request_Handler::ajax_send_error($auth_result);
+        }
+
+        $manager = new LocalPOC_Database_Stream_Manager();
+
+        $options = [
+            'chunk_size' => isset($_POST['chunk_size']) ? (int)$_POST['chunk_size'] : 1000,
+            'compression' => isset($_POST['compression']) ? $_POST['compression'] : 'none'
+        ];
+
+        try {
+            $result = $manager->init_stream($options);
+            wp_send_json_success($result);
+        } catch (Exception $e) {
+            wp_send_json_error(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * AJAX: Stream database chunk
+     */
+    public static function db_stream_chunk() {
+        $auth_result = LocalPOC_Auth::validate_access_key(LocalPOC_Auth::get_request_key());
+        if ($auth_result instanceof WP_Error) {
+            LocalPOC_Request_Handler::ajax_send_error($auth_result);
+        }
+
+        if (empty($_POST['cursor'])) {
+            wp_send_json_error(['message' => 'Missing cursor'], 400);
+            return;
+        }
+
+        $manager = new LocalPOC_Database_Stream_Manager();
+
+        $options = [
+            'time_budget' => isset($_POST['time_budget']) ? (int)$_POST['time_budget'] : 5,
+            'compression' => isset($_POST['compression']) ? $_POST['compression'] : 'none'
+        ];
+
+        try {
+            $result = $manager->stream_chunk($_POST['cursor'], $options);
+            wp_send_json_success($result);
+        } catch (Exception $e) {
+            wp_send_json_error(['message' => $e->getMessage()], 500);
+        }
+    }
 }

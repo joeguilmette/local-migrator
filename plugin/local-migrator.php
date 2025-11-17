@@ -26,6 +26,7 @@ require_once LOCALPOC_PLUGIN_DIR . 'includes/class-auth.php';
 require_once LOCALPOC_PLUGIN_DIR . 'includes/class-file-scanner.php';
 require_once LOCALPOC_PLUGIN_DIR . 'includes/class-path-resolver.php';
 require_once LOCALPOC_PLUGIN_DIR . 'includes/class-database-job-manager.php';
+require_once LOCALPOC_PLUGIN_DIR . 'includes/class-database-stream-manager.php';
 require_once LOCALPOC_PLUGIN_DIR . 'includes/class-request-handler.php';
 require_once LOCALPOC_PLUGIN_DIR . 'includes/class-manifest-manager.php';
 require_once LOCALPOC_PLUGIN_DIR . 'includes/class-batch-processor.php';
