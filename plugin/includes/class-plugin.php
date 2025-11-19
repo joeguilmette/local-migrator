@@ -68,6 +68,12 @@ class LocalPOC_Plugin {
         add_action('wp_ajax_localpoc_db_job_finish', [LocalPOC_Ajax_Handlers::class, 'db_job_finish']);
         add_action('wp_ajax_nopriv_localpoc_db_job_finish', [LocalPOC_Ajax_Handlers::class, 'db_job_finish']);
 
+        // Add streaming endpoints (POC)
+        add_action('wp_ajax_localpoc_db_stream_init', [LocalPOC_Ajax_Handlers::class, 'db_stream_init']);
+        add_action('wp_ajax_nopriv_localpoc_db_stream_init', [LocalPOC_Ajax_Handlers::class, 'db_stream_init']);
+        add_action('wp_ajax_localpoc_db_stream_chunk', [LocalPOC_Ajax_Handlers::class, 'db_stream_chunk']);
+        add_action('wp_ajax_nopriv_localpoc_db_stream_chunk', [LocalPOC_Ajax_Handlers::class, 'db_stream_chunk']);
+
     }
 
     /**

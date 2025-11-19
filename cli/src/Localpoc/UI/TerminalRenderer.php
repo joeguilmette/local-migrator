@@ -92,7 +92,7 @@ class TerminalRenderer
             '',
             'Download complete',
             sprintf('  Time     : %s', $this->formatDuration($elapsed)),
-            sprintf('  Database : %s rows', number_format($state->dbTotalRows)),
+            sprintf('  Database : %s rows', number_format($state->dbRowsProcessed)),
             sprintf('  Files    : %d files', $state->filesCompleted),
         ];
 

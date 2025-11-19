@@ -3,6 +3,7 @@
 .vscode/
 .idea/
 *.swp
+.claude/
 
 # PHP / Composer build output
 cli/vendor/
