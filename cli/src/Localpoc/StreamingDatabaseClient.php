@@ -113,7 +113,9 @@ class StreamingDatabaseClient {
 
         try {
             // Initialize stream
-            echo "Initializing database stream...\n";
+            if (!$progressCallback) {
+                echo "Initializing database stream...\n";
+            }
             $init = $this->initStream([
                 'chunk_size' => $options['chunk_size'] ?? 1000,
                 'compression' => 'gzip'
@@ -132,7 +134,9 @@ class StreamingDatabaseClient {
             $total_bytes_sent = strlen($header);
             $chunk_count = 0;
 
-            echo "Streaming {$metadata['total_tables']} tables (~{$metadata['total_rows']} rows)...\n";
+            if (!$progressCallback) {
+                echo "Streaming {$metadata['total_tables']} tables (~{$metadata['total_rows']} rows)...\n";
+            }
 
             // Stream chunks
             while (true) {
@@ -176,8 +180,10 @@ class StreamingDatabaseClient {
 
                 // Check completion
                 if ($chunk['is_complete']) {
-                    echo "\nStreaming complete: $chunk_count chunks, $total_rows_sent rows, " .
-                         sprintf("%.2f MB\n", $total_bytes_sent / 1048576);
+                    if (!$progressCallback) {
+                        echo "\nStreaming complete: $chunk_count chunks, $total_rows_sent rows, " .
+                             sprintf("%.2f MB\n", $total_bytes_sent / 1048576);
+                    }
                     break;
                 }
 

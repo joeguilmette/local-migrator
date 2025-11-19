@@ -54,10 +54,10 @@ if (strpos($orchestratorCode, '$useStreaming = true') !== false) {
     exit(1);
 }
 
-if (strpos($orchestratorCode, 'streamToFile') !== false) {
-    echo "✅ DownloadOrchestrator calls streamToFile method\n";
+if (strpos($orchestratorCode, 'streamToFile') !== false || strpos($orchestratorCode, 'fetchChunk') !== false) {
+    echo "✅ DownloadOrchestrator calls streamToFile or fetchChunk method\n";
 } else {
-    echo "❌ DownloadOrchestrator does not call streamToFile\n";
+    echo "❌ DownloadOrchestrator does not call streamToFile or fetchChunk\n";
     exit(1);
 }
 

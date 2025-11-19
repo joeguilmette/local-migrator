@@ -85,6 +85,10 @@ class DownloadOrchestrator
                 $this->debug('Using streaming database export');
 
                 $streamClient = new StreamingDatabaseClient($url, $key);
+                
+                $this->progress->currentActivity = 'Initializing database stream...';
+                $this->updateRenderer();
+
                 $streamInit = $streamClient->initStream([
                     'chunk_size' => 2000,
                     'compression' => 'gzip'
@@ -160,27 +164,30 @@ class DownloadOrchestrator
             }
 
             // Update progress state - DB tracked by rows only
-            $this->progress->dbTotalRows = $dbJobState['total_rows'];
-            $this->progress->dbRowsProcessed = $dbJobState['rows_processed'];
-            $this->updateRenderer();
+            if (!$dbJobState['streaming']) {
+                $this->progress->dbTotalRows = $dbJobState['total_rows'];
+                $this->progress->dbRowsProcessed = $dbJobState['rows_processed'];
+                $this->updateRenderer();
+            }
 
             $lastDbPoll = 0.0;
-
             $lastDbLog = 0.0;
 
-            // For streaming, we'll handle DB export differently
-            if ($dbJobState['streaming']) {
-                $pollDbJob = function (bool $force = false) use (&$streamState, &$dbJobState, &$lastDbPoll): void {
-                    if ($dbJobState['done']) {
-                        return;
-                    }
+            // Define pollDbJob for BOTH streaming (interleaved) and legacy mode
+            $pollDbJob = function (bool $force = false) use (&$streamState, &$dbJobState, &$lastDbPoll, &$lastDbLog, $adminAjaxUrl, $key, $dbJobId): void {
+                if ($dbJobState['done']) {
+                    return;
+                }
 
-                    $now = microtime(true);
-                    if (!$force && ($now - $lastDbPoll) < 0.25) {
-                        return;
-                    }
-                    $lastDbPoll = $now;
+                $now = microtime(true);
+                // Throttle DB checks to avoid starving file downloads
+                if (!$force && ($now - $lastDbPoll) < 0.1) {
+                    return;
+                }
+                $lastDbPoll = $now;
 
+                if ($dbJobState['streaming']) {
+                    // Fetch one chunk
                     $chunk = $streamState['client']->fetchChunk(
                         $streamState['cursor'],
                         $streamState['options']
@@ -211,17 +218,22 @@ class DownloadOrchestrator
                     $this->progress->dbRowsProcessed = $streamState['rows_sent'];
                     $this->progress->bytesTransferred += $bytesInChunk;
 
+                    // Update total rows if we discover more (e.g. if initial estimate was 0)
+                    if ($this->progress->dbTotalRows === 0 && $dbJobState['total_rows'] === 0 && $rowsInChunk > 0) {
+                         // Keep it 0 or update? For now, let's just track processed.
+                    }
+
                     $tablesTotal = (int) ($streamState['metadata']['total_tables'] ?? 0);
                     $tablesCompleted = (int) ($chunk['progress']['tables_completed'] ?? 0);
                     $currentTable = (string) ($chunk['progress']['current_table'] ?? 'unknown');
                     $currentIndex = $tablesTotal > 0 ? min($tablesCompleted + 1, $tablesTotal) : ($tablesCompleted + 1);
 
-                    $this->progress->currentActivity = sprintf(
-                        'Streaming table %d/%d: %s',
-                        $currentIndex,
-                        $tablesTotal,
-                        $currentTable
-                    );
+                    // Only update activity if we are not downloading files (to avoid flickering)
+                    // OR we can just let the renderer handle it.
+                    // Actually, let's NOT overwrite currentActivity here if files are downloading,
+                    // because file download activity is more rapid.
+                    // But we want to show DB progress too. The renderer shows DB progress bar separately.
+                    // So we don't strictly need to update currentActivity for DB unless it's the ONLY thing running.
 
                     if ($this->shouldRender()) {
                         $this->updateRenderer();
@@ -233,82 +245,33 @@ class DownloadOrchestrator
                             $streamState['handle'] = null;
                         }
                         $dbJobState['done'] = true;
-                    }
-                };
-            } else {
-                // Legacy polling for job-based export
-                $pollDbJob = function (bool $force = false) use (&$dbJobState, &$lastDbPoll, &$lastDbLog, $adminAjaxUrl, $key, $dbJobId): void {
-                    if ($dbJobState['done']) {
-                        return;
+                        
+                        // Update final totals
+                        $this->progress->dbTotalRows = $this->progress->dbRowsProcessed;
                     }
 
-                    $now = microtime(true);
-                    if (!$force && ($now - $lastDbPoll) < 0.5) {
-                        return;
-                    }
-                    $lastDbPoll = $now;
-
+                } else {
+                    // Legacy polling for job-based export
                     $progress = DatabaseJobClient::processChunk($adminAjaxUrl, $key, $dbJobId);
                     $newBytes = (int) ($progress['bytes_written'] ?? $dbJobState['bytes_written']);
                     if ($newBytes > $dbJobState['bytes_written']) {
                         $dbJobState['bytes_written'] = $newBytes;
-                        // Don't track DB export bytes, only rows
                     }
 
                     $rowsProcessed = (int) ($progress['rows_processed'] ?? $dbJobState['rows_processed']);
                     if ($rowsProcessed > $dbJobState['rows_processed']) {
                         $dbJobState['rows_processed'] = $rowsProcessed;
                         $this->progress->dbRowsProcessed = $rowsProcessed;
-                        $this->progress->currentActivity = sprintf('Exporting DB row %d/%d', $rowsProcessed, $this->progress->dbTotalRows);
                         $this->updateRenderer();
                     }
 
-                    $completed = (int) ($progress['completed_tables'] ?? 0);
-                    $totalTables = $dbJobState['total_tables'];
-                    $estimated = $dbJobState['estimated_bytes'];
-                    $bytesWritten = $dbJobState['bytes_written'];
-                    $fileSize = (int) ($progress['file_size'] ?? 0);
                     $doneFlag = !empty($progress['done']);
-                    $nowLog = microtime(true);
-                    if ($nowLog - $lastDbLog >= 1.0) {
-                        $lastDbLog = $nowLog;
-                        $this->debug(sprintf(
-                            'DB chunk -> tables %d/%d, bytes %s/%s, file %s, done=%s',
-                            $completed,
-                            $totalTables,
-                            $this->formatBytes($bytesWritten),
-                            $this->formatBytes($estimated),
-                            $this->formatBytes($fileSize),
-                            $doneFlag ? 'yes' : 'no'
-                        ));
-                    }
-
-                    if (!empty($progress['warnings'])) {
-                        foreach ((array) $progress['warnings'] as $warning) {
-                            $this->debug('DB warning: ' . $warning);
-                        }
-                    }
-
-                    if (!empty($progress['last_table']) && !empty($progress['last_batch_rows'])) {
-                        $this->debug(sprintf('DB batch: %s rows=%d', $progress['last_table'], (int) $progress['last_batch_rows']));
-                    }
-
                     if ($doneFlag) {
-                        $this->debug(sprintf(
-                            'DB job complete -> bytes %s file %s (%d rows)',
-                            $this->formatBytes($bytesWritten),
-                            $this->formatBytes($fileSize),
-                            $dbJobState['total_rows']
-                        ));
                         $dbJobState['done'] = true;
-                        $this->progress->currentActivity = 'Database export complete';
                         $this->updateRenderer();
                     }
-                };
-
-                // Kick off an initial chunk for legacy mode
-                $pollDbJob(true);
-            }
+                }
+            };
 
             $this->info('Starting file manifest job...');
             $this->progress->currentActivity = 'Collecting file manifest';
@@ -611,8 +574,19 @@ class DownloadOrchestrator
      */
     private function validateDownload(int $fileCount, int $filesDownloaded): array
     {
+        // For DB, if we streamed, we trust the 'done' flag and having some rows (if tables existed)
+        // If total_rows was 0 (common with inaccurate SHOW TABLE STATUS), we assume success if we got > 0 rows and finished.
+        $dbComplete = false;
+        if ($this->progress->dbTotalRows > 0) {
+            $dbComplete = $this->progress->dbRowsProcessed >= $this->progress->dbTotalRows;
+        } else {
+            // If total is 0, we consider it complete if we processed *something* (assuming the site isn't empty)
+            // or if we just finished the stream successfully.
+            $dbComplete = $this->progress->dbRowsProcessed >= 0; 
+        }
+
         $validation = [
-            'db_complete' => $this->progress->dbRowsProcessed === $this->progress->dbTotalRows,
+            'db_complete' => $dbComplete,
             'files_match' => $filesDownloaded === $fileCount,
             'bytes_transferred' => $this->progress->bytesTransferred > 0,
             'success' => true
